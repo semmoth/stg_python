@@ -1,0 +1,22 @@
+credentials:
+  usernames:
+    stefan:
+      email: stefan@example.com
+      name: Stefan
+      password: REPLACE_WITH_HASHED_PASSWORD  # run: python hash_password.py
+    friend1:
+      email: friend1@example.com
+      name: Friend 1
+      password: REPLACE_WITH_HASHED_PASSWORD
+    friend2:
+      email: friend2@example.com
+      name: Friend 2
+      password: REPLACE_WITH_HASHED_PASSWORD
+
+cookie:
+  expiry_days: 30
+  key: golf_tracker_secret_key_change_me
+  name: golf_tracker_cookie
+
+preauthorized:
+  emails: []

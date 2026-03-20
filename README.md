@@ -39,7 +39,25 @@ pip install -r requirements.txt
 
 
 
+2. Create a Turso database
+Sign up at turso.tech (free — no credit card needed)
+Click Create Database
+Open your database → click Connect
+Copy your Database URL and Auth Token
 
+
+3. Add your Turso credentials
+Open .streamlit/secrets.toml and fill in your values:
+
+TURSO_URL = "https://your-db-name-your-org.turso.io"
+TURSO_TOKEN = "your-auth-token-here"
+
+⚠️ Never commit this file to GitHub. It is already listed in .gitignore.
+
+4. Set up the database
+Run the setup script once to create all tables and seed Gullbringa Golf and Country Club:
+
+python setup_db.py
 
 
 

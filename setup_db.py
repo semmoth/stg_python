@@ -38,7 +38,7 @@ except Exception:
 
 import requests
 
-TURSO_URL = secrets["TURSO_URL"].rstrip("/")
+TURSO_URL = secrets["TURSO_URL"].rstrip("/").replace("libsql://", "https://")
 TURSO_TOKEN = secrets["TURSO_TOKEN"]
 HEADERS = {
     "Authorization": f"Bearer {TURSO_TOKEN}",

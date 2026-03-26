@@ -8,24 +8,24 @@ def get_courses() -> list[dict]:
     return get_client().fetchall("SELECT * FROM courses ORDER BY name")
 
 
-def get_holes(course_id: int) -> list[dict]:
+def get_holes(course_id: int, tee_id: int = 1) -> list[dict]:
     return get_client().fetchall(
-        "SELECT * FROM holes WHERE course_id = ? ORDER BY hole_number",
-        [course_id],
+        "SELECT h.id, h.hole_number, ht.par, ht.distance FROM holes h INNER JOIN hole_tees ht ON h.id = ht.hole_id WHERE h.course_id = ? AND ht.tee_id = ? ORDER BY h.hole_number",
+        [course_id, tee_id],
     )
 
 
-def get_hole(course_id: int, hole_number: int) -> dict | None:
+def get_hole(course_id: int, hole_number: int, tee_id: int = 1) -> dict | None:
     return get_client().fetchone(
-        "SELECT * FROM holes WHERE course_id = ? AND hole_number = ?",
-        [course_id, hole_number],
+        "SELECT h.id, h.hole_number, ht.par, ht.distance FROM holes h INNER JOIN hole_tees ht ON h.id = ht.hole_id WHERE h.course_id = ? AND h.hole_number = ? AND ht.tee_id = ?",
+        [course_id, hole_number, tee_id],
     )
 
 
-def update_hole(hole_id: int, par: int, distance: int):
+def update_hole(hole_id: int, par: int, distance: int, tee_id: int = 1):
     get_client().execute(
-        "UPDATE holes SET par = ?, distance_meters = ? WHERE id = ?",
-        [par, distance, hole_id],
+        "UPDATE hole_tees SET par = ?, distance = ? WHERE hole_id = ? AND tee_id = ?",
+        [par, distance, hole_id, tee_id],
     )
 
 
@@ -82,27 +82,28 @@ def save_shot(
     hole_number: int,
     shot_number: int,
     surface: str,
-    distance_to_hole: float,
+    distance_to_hole: int,
     distance_unit: str,
     club: str | None,
-    shot_distance: float | None,
+    shot_distance: int | None,
     holed: bool,
+    penalty: bool = False,
 ) -> int:
     return get_client().execute(
-        """
-        INSERT INTO shots (
-            round_id, hole_number, shot_number, surface,
-            distance_to_hole, distance_unit,
-            club, shot_distance, holed
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
+        "INSERT INTO shots (round_id, hole_number, shot_number, surface, distance_to_hole, distance_unit, club, shot_distance, holed, penalty) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
-            round_id, hole_number, shot_number, surface,
-            distance_to_hole, distance_unit,
-            club, shot_distance, int(holed),
+            round_id,
+            hole_number,
+            shot_number,
+            surface,
+            int(distance_to_hole),
+            distance_unit,
+            club,
+            int(shot_distance) if shot_distance else None,
+            holed,
+            int(penalty),
         ],
     )
-
 
 def get_shots_for_round(round_id: int) -> list[dict]:
     return get_client().fetchall(
@@ -137,11 +138,12 @@ def get_all_shots_for_user(username: str) -> list[dict]:
     return get_client().fetchall(
         """
         SELECT s.*, r.date, r.course_id, r.tee, c.name as course_name,
-               h.par, h.distance_meters
+               ht.par, ht.distance
         FROM shots s
         JOIN rounds r ON r.id = s.round_id
         JOIN courses c ON c.id = r.course_id
         JOIN holes h ON h.course_id = r.course_id AND h.hole_number = s.hole_number
+        JOIN hole_tees ht ON ht.hole_id = h.id AND ht.tee_id = CASE WHEN r.tee = 'Yellow' THEN 1 ELSE 2 END
         WHERE r.username = ? AND r.completed = 1
         ORDER BY r.date DESC, s.hole_number, s.shot_number
         """,

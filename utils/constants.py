@@ -4,12 +4,8 @@ SURFACES = ["Tee", "Fairway", "Rough", "Sand", "Green", "Recovery"]
 
 CLUBS = [
     "Driver",
-    "3 Wood",
-    "5 Wood",
-    "3 Hybrid",
-    "4 Hybrid",
-    "5 Hybrid",
-    "3 Iron",
+    "4 Wood",
+    "2 Hybrid",
     "4 Iron",
     "5 Iron",
     "6 Iron",
@@ -22,7 +18,29 @@ CLUBS = [
     "LW",
 ]
 
-TEES = ["Yellow", "White", "Red", "Blue", "Black"]
+TEES = ["Yellow", "Red"]
+
+# Tee ID mapping for database
+TEES_ID = {
+    "Yellow": 1,
+    "Red": 2,
+}
+
+CLUB_DISTANCE_ESTIMATES = {
+    "Driver": 250,
+    "4 Wood": 230,
+    "2 Hybrid": 210,
+    "4 Iron": 185,
+    "5 Iron": 175,
+    "6 Iron": 165,
+    "7 Iron": 155,
+    "8 Iron": 145,
+    "9 Iron": 135,
+    "PW": 125,
+    "GW": 105,
+    "SW": 90,
+    "LW": 80,
+}
 
 # Shots from these surfaces are measured in feet (on the green)
 GREEN_SURFACES = ["Green"]

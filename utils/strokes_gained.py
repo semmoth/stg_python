@@ -156,7 +156,7 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
     if not shots:
         return {}
 
-    hole_map = {h["hole_number"]: h for h in holes}
+    hole_map = {int(h["hole_number"]): h for h in holes}
     shots_by_hole: dict[int, list[dict]] = {}
     for s in shots:
         hn = int(s["hole_number"])
@@ -167,6 +167,15 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
     stg_tee_list, stg_app_list, stg_sg_list, stg_putt_list = [], [], [], []
     fir_results, gir_results = [], []
     driving_distances = []
+    # Putting distance tracking
+    puts_6ft = 0
+    puts_6_10ft = 0
+    puts_10_30ft = 0
+    puts_30plus = 0
+    makes_6ft = 0
+    makes_6_10ft = 0
+    makes_10_30ft = 0
+    makes_30plus = 0
 
     for hole_num in sorted(shots_by_hole.keys()):
         hole_shots = sorted(shots_by_hole[hole_num], key=lambda x: int(x["shot_number"]))
@@ -181,6 +190,27 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
             dist = float(shot["distance_to_hole"]) if shot["distance_to_hole"] else 0
             unit = shot["distance_unit"] or "meters"
             holed = bool(int(shot["holed"])) if shot["holed"] is not None else False
+            
+            # Track putting by distance (Green surface = putting)
+            if surface == "Green" and dist > 0:
+                # Convert to feet if needed
+                dist_feet = dist if unit == "feet" else dist * FEET_PER_METER
+                if dist_feet <= 6:
+                    puts_6ft += 1
+                    if holed:
+                        makes_6ft += 1
+                elif dist_feet <= 10:
+                    puts_6_10ft += 1
+                    if holed:
+                        makes_6_10ft += 1
+                elif dist_feet <= 30:
+                    puts_10_30ft += 1
+                    if holed:
+                        makes_10_30ft += 1
+                else:
+                    puts_30plus += 1
+                    if holed:
+                        makes_30plus += 1
 
             if i + 1 < len(hole_shots):
                 next_shot = hole_shots[i + 1]
@@ -201,28 +231,64 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
         stg_sg_list.append(hole_stg["short_game"])
         stg_putt_list.append(hole_stg["putting"])
 
-        # Driving distance (shot 1, if shot_distance recorded)
+        # Driving distance: only when driver was used on tee shot
         tee_shot = hole_shots[0]
-        if tee_shot.get("shot_distance"):
+        if tee_shot.get("club") == "Driver" and tee_shot.get("shot_distance"):
             try:
                 driving_distances.append(float(tee_shot["shot_distance"]))
             except (ValueError, TypeError):
                 pass
 
-        # FIR: par 4 and 5 only — shot 2 surface is Fairway
-        if par >= 4 and len(hole_shots) >= 2:
-            fir_results.append(hole_shots[1]["surface"] == "Fairway")
+        # FIR: only count for par > 3; requires second shot on fairway
+        if par > 3:
+            if len(hole_shots) >= 2:
+                fir_results.append(hole_shots[1]["surface"] == "Fairway")
+            else:
+                fir_results.append(False)
 
-        # GIR: on green in par - 2 or fewer shots
-        gir_threshold = par - 2
-        gir = any(
-            int(s["shot_number"]) <= gir_threshold and s["surface"] == "Green"
-            for s in hole_shots
-        )
+        # GIR rules:
+        #  - Par 3: green on shot 2 (or hole-in-one)
+        #  - Par 4: green on shot 2 or 3
+        #  - Par 5: green on shot 2, 3 or 4
+        if score == 1:
+            gir = True
+        else:
+            gir_threshold = max(2, par - 1)
+            gir = any(
+                2 <= int(s["shot_number"]) <= gir_threshold and s["surface"] == "Green"
+                for s in hole_shots
+            )
         gir_results.append(gir)
 
         # Putts on this hole
         putts = sum(1 for s in hole_shots if s["surface"] == "Green")
+
+        # Tiger 5 Rules tracking:
+        # 1. Bogey on Par 5
+        par5_bogey = par == 5 and score - par >= 1
+        # 2. Double bogey or worse
+        double_bogey = score - par >= 2
+        # 3. Three-putt
+        three_putt = putts >= 3
+        # 4. Bogey with scoring club: 2nd shot on fairway/rough at <150m → bogey
+        scoring_club_bogey = False
+        if score - par == 1 and len(hole_shots) >= 2:
+            second = hole_shots[1]
+            dist = float(second.get("distance_to_hole", 0))
+            if second["surface"] in ["Fairway", "Rough"] and dist < 150:
+                scoring_club_bogey = True
+        # 5. Missed easy up-and-down: had chance from close range (<10m) but failed to save par
+        up_and_down = False
+        had_close_approach = False
+        for shot in hole_shots:
+            if shot["surface"] in ["Fairway", "Rough", "Sand"]:
+                dist = float(shot.get("distance_to_hole", 0))
+                if dist < 10:
+                    had_close_approach = True
+                    break
+        # Violation: had close approach within 10m but didn't save par
+        if had_close_approach and score > par:
+            up_and_down = True
 
         scorecard.append({
             "hole": hole_num,
@@ -231,11 +297,17 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
             "score_vs_par": score - par,
             "putts": putts,
             "gir": gir,
-            "fir": fir_results[-1] if par >= 4 else None,
+            "fir": fir_results[-1] if par > 3 else None,
             "stg_tee": round(hole_stg["tee"], 2),
             "stg_approach": round(hole_stg["approach"], 2),
             "stg_short_game": round(hole_stg["short_game"], 2),
             "stg_putting": round(hole_stg["putting"], 2),
+            # Tiger 5 Rules
+            "par5_bogey": par5_bogey,
+            "double_bogey": double_bogey,
+            "three_putt": three_putt,
+            "scoring_club_bogey": scoring_club_bogey,
+            "up_and_down": up_and_down,
         })
 
     # ── Aggregate ──────────────────────────────────────────────────────────────
@@ -274,6 +346,11 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
         + sum(stg_sg_list) + sum(stg_putt_list)
     )
 
+    # Score vs Par by par type
+    par3_scores = [h["score_vs_par"] for h in scorecard if h["par"] == 3]
+    par4_scores = [h["score_vs_par"] for h in scorecard if h["par"] == 4]
+    par5_scores = [h["score_vs_par"] for h in scorecard if h["par"] == 5]
+
     return {
         "scorecard": scorecard,
         "score": total_score,
@@ -288,6 +365,24 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
         "driving_distances": driving_distances,
         "avg_drive": round(np.mean(driving_distances), 1) if driving_distances else None,
         "score_distribution": score_dist,
+        "par3_vs_par": sum(par3_scores) if par3_scores else 0,
+        "par4_vs_par": sum(par4_scores) if par4_scores else 0,
+        "par5_vs_par": sum(par5_scores) if par5_scores else 0,
+        # Putting by distance
+        "puts_6ft": puts_6ft,
+        "makes_6ft": makes_6ft,
+        "puts_6_10ft": puts_6_10ft,
+        "makes_6_10ft": makes_6_10ft,
+        "puts_10_30ft": puts_10_30ft,
+        "makes_10_30ft": makes_10_30ft,
+        "puts_30plus": puts_30plus,
+        "makes_30plus": makes_30plus,
+        # Tiger 5 Rules
+        "tiger5_par5_bogeys": sum(1 for h in scorecard if h["par5_bogey"]),
+        "tiger5_double_bogeys": sum(1 for h in scorecard if h["double_bogey"]),
+        "tiger5_three_putts": sum(1 for h in scorecard if h["three_putt"]),
+        "tiger5_scoring_bogeys": sum(1 for h in scorecard if h["scoring_club_bogey"]),
+        "tiger5_up_and_downs": sum(1 for h in scorecard if h["up_and_down"]),
         # Normalised to 18 holes
         "stg_tee": round(sum(stg_tee_list) * norm, 2),
         "stg_approach": round(sum(stg_app_list) * norm, 2),

@@ -35,7 +35,9 @@ def _parse_rows(result: dict) -> list[dict]:
 
 class TursoClient:
     def __init__(self):
-        self.url = st.secrets["TURSO_URL"].rstrip("/")
+        # Convert libsql:// to https:// for HTTP API
+        turso_url = st.secrets["TURSO_URL"].rstrip("/")
+        self.url = turso_url.replace("libsql://", "https://")
         self.token = st.secrets["TURSO_TOKEN"]
         self.headers = {
             "Authorization": f"Bearer {self.token}",

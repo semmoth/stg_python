@@ -16,6 +16,7 @@ CLUBS = [
     "GW",
     "SW",
     "LW",
+    "Putter",
 ]
 
 TEES = ["Yellow", "Red"]
@@ -40,6 +41,7 @@ CLUB_DISTANCE_ESTIMATES = {
     "GW": 105,
     "SW": 90,
     "LW": 80,
+    "Putter": 30,
 }
 
 # Shots from these surfaces are measured in feet (on the green)

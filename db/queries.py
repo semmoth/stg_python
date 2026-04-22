@@ -5,7 +5,35 @@ from db.client import get_client
 # ── Courses & Holes ────────────────────────────────────────────────────────────
 
 def get_courses() -> list[dict]:
-    return get_client().fetchall("SELECT * FROM courses ORDER BY name")
+    return get_client().fetchall("""
+        SELECT c.*, COUNT(h.id) as nr_of_holes
+        FROM courses c
+        LEFT JOIN holes h ON c.id = h.course_id
+        GROUP BY c.id, c.name, c.location
+        ORDER BY c.name
+    """)
+
+
+def create_course(name: str, location: str = "") -> int:
+    return get_client().execute(
+        "INSERT INTO courses (name, location) VALUES (?, ?)",
+        [name, location],
+    )
+
+
+def create_holes_for_course(course_id: int, holes_data: list[tuple], tee_id: int = 1) -> None:
+    """Create holes and hole_tees for a course. holes_data: [(hole_number, par, distance), ...]"""
+    for hole_num, par, distance in holes_data:
+        # Create hole
+        hole_id = get_client().execute(
+            "INSERT INTO holes (course_id, hole_number) VALUES (?, ?)",
+            [course_id, hole_num],
+        )
+        # Create hole_tee
+        get_client().execute(
+            "INSERT INTO hole_tees (hole_id, course_id, tee_id, par, distance) VALUES (?, ?, ?, ?, ?)",
+            [hole_id, course_id, tee_id, par, distance],
+        )
 
 
 def get_holes(course_id: int, tee_id: int = 1) -> list[dict]:

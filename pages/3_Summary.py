@@ -114,6 +114,11 @@ df = pd.DataFrame([
         "makes_10_30ft": s.get("makes_10_30ft", 0),
         "puts_30plus": s.get("puts_30plus", 0),
         "makes_30plus": s.get("makes_30plus", 0),
+        # SG by putting distance
+        "sg_6ft": s.get("sg_6ft", 0.0),
+        "sg_6_10ft": s.get("sg_6_10ft", 0.0),
+        "sg_10_30ft": s.get("sg_10_30ft", 0.0),
+        "sg_30plus": s.get("sg_30plus", 0.0),
     }
     for s in all_stats
 ]).sort_values("date")
@@ -181,10 +186,13 @@ fig_stg.update_layout(
 st.plotly_chart(fig_stg, use_container_width=True)
 
 # ── Average STG by category ────────────────────────────────────────────────────
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4, col5 = st.columns(5)
 for col, (key, label) in zip([col1, col2, col3, col4], stg_cols.items()):
     avg = df[key].mean()
     col.metric(label, f"{avg:+.2f}")
+
+# Total STG
+col5.metric("Total STG", f"{df['stg_total'].mean():+.2f}")
 
 st.markdown("---")
 
@@ -230,19 +238,16 @@ st.markdown("---")
 st.subheader("Putting by Distance — Season Summary")
 
 putting_totals = [
-    ("0-6 ft", df["makes_6ft"].sum(), df["puts_6ft"].sum()),
-    ("6-10 ft", df["makes_6_10ft"].sum(), df["puts_6_10ft"].sum()),
-    ("10-30 ft", df["makes_10_30ft"].sum(), df["puts_10_30ft"].sum()),
-    ("30+ ft", df["makes_30plus"].sum(), df["puts_30plus"].sum()),
+    ("0-6 ft", df["sg_6ft"].mean()),
+    ("6-10 ft", df["sg_6_10ft"].mean()),
+    ("10-30 ft", df["sg_10_30ft"].mean()),
+    ("30+ ft", df["sg_30plus"].mean()),
 ]
 
 col1, col2, col3, col4 = st.columns(4)
-for (label, makes, attempts), col in zip(putting_totals, [col1, col2, col3, col4]):
-    if attempts > 0:
-        pct = (makes / attempts) * 100
-        col.metric(label, f"{makes}/{attempts}", delta=f"{pct:.0f}%")
-    else:
-        col.metric(label, "0/0", delta="N/A")
+for (label, avg_sg), col in zip(putting_totals, [col1, col2, col3, col4]):
+    delta_color = "normal" if avg_sg >= 0 else "inverse"
+    col.metric(label, f"{avg_sg:+.2f}", delta=f"{avg_sg:+.2f}", delta_color=delta_color)
 
 st.markdown("---")
 st.subheader("🐯 Tiger 5 Rules — Season Summary")

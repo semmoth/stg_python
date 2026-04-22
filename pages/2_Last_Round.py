@@ -194,10 +194,11 @@ stg_values = {
     "Approach": stats["stg_approach"],
     "Short Game": stats["stg_short_game"],
     "Putting": stats["stg_putting"],
+    "Total": stats["stg_total"],
 }
 
-col1, col2, col3, col4 = st.columns(4)
-for col, (label, val) in zip([col1, col2, col3, col4], stg_values.items()):
+col1, col2, col3, col4, col5 = st.columns(5)
+for col, (label, val) in zip([col1, col2, col3, col4, col5], stg_values.items()):
     delta_color = "normal" if val >= 0 else "inverse"
     col.metric(label, f"{val:+.2f}", delta=f"{val:+.2f}", delta_color=delta_color)
 
@@ -252,19 +253,16 @@ st.markdown("---")
 st.subheader("Putting by Distance")
 
 putting_data = [
-    ("0-6 ft", stats.get("makes_6ft", 0), stats.get("puts_6ft", 0)),
-    ("6-10 ft", stats.get("makes_6_10ft", 0), stats.get("puts_6_10ft", 0)),
-    ("10-30 ft", stats.get("makes_10_30ft", 0), stats.get("puts_10_30ft", 0)),
-    ("30+ ft", stats.get("makes_30plus", 0), stats.get("puts_30plus", 0)),
+    ("0-6 ft", stats.get("sg_6ft", 0.0)),
+    ("6-10 ft", stats.get("sg_6_10ft", 0.0)),
+    ("10-30 ft", stats.get("sg_10_30ft", 0.0)),
+    ("30+ ft", stats.get("sg_30plus", 0.0)),
 ]
 
 col1, col2, col3, col4 = st.columns(4)
-for (label, makes, attempts), col in zip(putting_data, [col1, col2, col3, col4]):
-    if attempts > 0:
-        pct = (makes / attempts) * 100
-        col.metric(label, f"{makes}/{attempts}", delta=f"{pct:.0f}%")
-    else:
-        col.metric(label, "0/0", delta="N/A")
+for (label, sg_value), col in zip(putting_data, [col1, col2, col3, col4]):
+    delta_color = "normal" if sg_value >= 0 else "inverse"
+    col.metric(label, f"{sg_value:+.2f}", delta=f"{sg_value:+.2f}", delta_color=delta_color)
 
 # ── Tiger 5 Rules ─────────────────────────────────────────────────────────────
 st.markdown("---")

@@ -176,6 +176,11 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
     makes_6_10ft = 0
     makes_10_30ft = 0
     makes_30plus = 0
+    # SG by putting distance
+    sg_6ft = 0.0
+    sg_6_10ft = 0.0
+    sg_10_30ft = 0.0
+    sg_30plus = 0.0
 
     for hole_num in sorted(shots_by_hole.keys()):
         hole_shots = sorted(shots_by_hole[hole_num], key=lambda x: int(x["shot_number"]))
@@ -225,6 +230,18 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
                 dist_m = dist if unit == "meters" else dist / FEET_PER_METER
                 phase = _shot_phase(surface, dist_m)
                 hole_stg[phase] += sg
+                
+                # Accumulate SG by putting distance for Green shots
+                if surface == "Green" and dist > 0:
+                    dist_feet = dist if unit == "feet" else dist * FEET_PER_METER
+                    if dist_feet <= 6:
+                        sg_6ft += sg
+                    elif dist_feet <= 10:
+                        sg_6_10ft += sg
+                    elif dist_feet <= 30:
+                        sg_10_30ft += sg
+                    else:
+                        sg_30plus += sg
 
         stg_tee_list.append(hole_stg["tee"])
         stg_app_list.append(hole_stg["approach"])
@@ -270,13 +287,19 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
         double_bogey = score - par >= 2
         # 3. Three-putt
         three_putt = putts >= 3
-        # 4. Bogey with scoring club: 2nd shot on fairway/rough at <150m → bogey
+        # 4. Bogey with scoring club: approach shot from fairway/rough within 130m that led to bogey
         scoring_club_bogey = False
         if score - par == 1 and len(hole_shots) >= 2:
-            second = hole_shots[1]
-            dist = float(second.get("distance_to_hole", 0))
-            if second["surface"] in ["Fairway", "Rough"] and dist < 150:
-                scoring_club_bogey = True
+            # Find the last non-green shot (the approach shot that got you to the green)
+            approach_shot = None
+            for shot in reversed(hole_shots[:-1]):  # Exclude the last shot (which might be holed)
+                if shot["surface"] != "Green":
+                    approach_shot = shot
+                    break
+            if approach_shot and approach_shot["surface"] in ["Fairway", "Rough"]:
+                dist = float(approach_shot.get("distance_to_hole", 0))
+                if dist < 131:  # Using 131 to be inclusive of 130
+                    scoring_club_bogey = True
         # 5. Missed easy up-and-down: had chance from close range (<10m) but failed to save par
         up_and_down = False
         had_close_approach = False
@@ -377,6 +400,11 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
         "makes_10_30ft": makes_10_30ft,
         "puts_30plus": puts_30plus,
         "makes_30plus": makes_30plus,
+        # SG by putting distance
+        "sg_6ft": round(sg_6ft * norm, 2),
+        "sg_6_10ft": round(sg_6_10ft * norm, 2),
+        "sg_10_30ft": round(sg_10_30ft * norm, 2),
+        "sg_30plus": round(sg_30plus * norm, 2),
         # Tiger 5 Rules
         "tiger5_par5_bogeys": sum(1 for h in scorecard if h["par5_bogey"]),
         "tiger5_double_bogeys": sum(1 for h in scorecard if h["double_bogey"]),

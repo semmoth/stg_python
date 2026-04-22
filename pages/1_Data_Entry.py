@@ -177,7 +177,12 @@ if hole_shots:
     last_shot_distance = last.get("shot_distance")
     last_penalty = last.get("penalty", False)
 
-    if last_dist is not None and last_dist <= 130 and not last.get("holed", False):
+    # Default to Green based on par and shot number
+    if shot_number == 2 and par == 3:
+        next_surface = "Green"
+    elif shot_number == 3 and par == 4:
+        next_surface = "Green"
+    elif shot_number == 4 and par == 5:
         next_surface = "Green"
 
     if last_penalty:
@@ -202,7 +207,7 @@ if not already_holed:
         club = st.selectbox("Club", CLUBS, key="club_select")
         shot_dist_val = st.number_input(
             "Shot distance (meters) — optional, for driving stats",
-            min_value=0, max_value=400, value=0, step=1, key="shot_dist_input",
+            min_value=0, max_value=400, value=None, step=1, key="shot_dist_input",
         )
         shot_dist_val = float(shot_dist_val) if shot_dist_val > 0 else None
         holed = st.checkbox("Holed ✅", key="holed_check")
@@ -223,7 +228,7 @@ if not already_holed:
             distance_unit = "feet"
             distance = st.number_input(
                 "Distance to hole (feet)", min_value=1, max_value=200,
-                value=int(next_distance) if next_distance and next_distance <= 200 else 10,
+                value=None,
                 step=1, key="dist_input",
             )
             club = "Putter"
@@ -233,7 +238,7 @@ if not already_holed:
             distance_unit = "meters"
             distance = st.number_input(
                 "Distance to hole (meters)", min_value=1, max_value=600,
-                value=int(next_distance) if next_distance else 100,
+                value=None,
                 step=1, key="dist_input",
             )
             suggested_club = next_club or None
@@ -245,7 +250,7 @@ if not already_holed:
             club = st.selectbox("Club", CLUBS, index=club_index, key="club_select")
             shot_dist_val = st.number_input(
                 "Shot distance (meters) — optional",
-                min_value=0, max_value=400, value=0, step=1, key="shot_dist_input",
+                min_value=0, max_value=600, value=None, step=1, key="shot_dist_input",
             )
             shot_dist_val = float(shot_dist_val) if shot_dist_val > 0 else None
 

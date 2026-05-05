@@ -56,10 +56,12 @@ st.markdown(f"Welcome back, **{name}**! Use the sidebar to navigate.")
 
 st.markdown("---")
 
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
 with col1:
     st.page_link("pages/1_Data_Entry.py", label="📝 Enter a Round", use_container_width=True)
 with col2:
     st.page_link("pages/2_Last_Round.py", label="📊 Last Round Stats", use_container_width=True)
 with col3:
     st.page_link("pages/3_Summary.py", label="📈 Season Summary", use_container_width=True)
+with col4:
+    st.page_link("pages/5_Tournament_Admin.py", label="🏆 Tournament Admin", use_container_width=True)

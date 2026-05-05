@@ -12,8 +12,8 @@ from PIL import Image
 import io
 import numpy as np
 
-from db.queries import get_courses, get_holes, update_hole, create_course, create_holes_for_course
-from utils.constants import TEES, TEES_ID
+from db.queries import get_courses, get_course_tee_names, get_holes, update_hole, create_course, create_holes_for_course
+from utils.constants import TEES
 
 # ── OCR functionality for course photos ────────────────────────────────────────
 @st.cache_resource
@@ -99,9 +99,14 @@ with st.expander("Add New Course", expanded=False):
     col1, col2 = st.columns([1, 1])
 
     with col1:
+        club_name = st.text_input("Club Name", placeholder="e.g., Gullbringa Golf Club")
         course_name = st.text_input("Course Name", placeholder="e.g., Gullbringa Golf and Country Club")
         course_location = st.text_input("Location (optional)", placeholder="e.g., Hönö, Sweden")
-        create_tee = st.selectbox("Tee for this data", TEES, index=0, help="Which tee set are you creating?")
+        create_tee = st.selectbox("Tee for this data", TEES + ["Other"], index=0, help="Which tee set are you creating?")
+        custom_tee = None
+        if create_tee == "Other":
+            custom_tee = st.text_input("Custom tee name", placeholder="e.g. Blue, Back, Tournament")
+        tee_name = custom_tee.strip() if create_tee == "Other" and custom_tee else create_tee
 
     with col2:
         st.markdown("**Option 1: Upload Course Photo**")
@@ -125,28 +130,72 @@ with st.expander("Add New Course", expanded=False):
                     st.dataframe(df_extracted, hide_index=True)
 
                     if st.button("Create Course from Extracted Data"):
-                        try:
-                            course_id = create_course(course_name, course_location)
-                            create_holes_for_course(course_id, extracted_data, TEES_ID[create_tee])
-                            st.success(f"Course '{course_name}' created with {len(extracted_data)} holes for {create_tee} tee!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Error creating course: {e}")
+                        if not course_name.strip():
+                            st.warning("Enter a course name.")
+                        elif create_tee == "Other" and not custom_tee:
+                            st.warning("Enter a custom tee name.")
+                        else:
+                            try:
+                                course_id = create_course(course_name.strip(), course_location.strip(), club_name.strip() or None)
+                                create_holes_for_course(course_id, extracted_data, tee_name)
+                                st.success(f"Course '{course_name}' created with {len(extracted_data)} holes for {tee_name} tee!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error creating course: {e}")
                 else:
                     st.warning("Could not extract hole data from the image. Try a clearer photo or use manual entry below.")
 
     st.markdown("---")
     st.markdown("**Option 2: Manual Entry**")
 
+    hole_inputs = []
+    hole_cols = st.columns(3)
+    for hole_num in range(1, 19):
+        col = hole_cols[(hole_num - 1) % 3]
+        with col:
+            st.markdown(f"**Hole {hole_num}**")
+            par_val = st.selectbox(
+                "Par", [3, 4, 5],
+                index=1,
+                key=f"manual_par_{hole_num}",
+            )
+            dist_val = st.number_input(
+                "Distance (m)",
+                min_value=50, max_value=700,
+                value=300,
+                step=5,
+                key=f"manual_dist_{hole_num}",
+            )
+            hole_inputs.append((hole_num, par_val, dist_val))
+
+    if st.button("Create Course from Manual Entry"):
+        if not course_name.strip():
+            st.warning("Enter a course name.")
+        elif create_tee == "Other" and not custom_tee:
+            st.warning("Enter a custom tee name.")
+        else:
+            try:
+                course_id = create_course(course_name.strip(), course_location.strip(), club_name.strip() or None)
+                create_holes_for_course(course_id, hole_inputs, tee_name)
+                st.success(f"Course '{course_name.strip()}' created with 18 holes for {tee_name} tee!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error creating course: {e}")
+
     if st.button("Add 18 Standard Holes"):
-        default_holes = [(i, 4, 350) for i in range(1, 19)]  # Default par 4, 350m
-        try:
-            course_id = create_course(course_name, course_location)
-            create_holes_for_course(course_id, default_holes, TEES_ID[create_tee])
-            st.success(f"Course '{course_name}' created with 18 default holes for {create_tee} tee!")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Error creating course: {e}")
+        if not course_name.strip():
+            st.warning("Enter a course name.")
+        elif create_tee == "Other" and not custom_tee:
+            st.warning("Enter a custom tee name.")
+        else:
+            default_holes = [(i, 4, 350) for i in range(1, 19)]  # Default par 4, 350m
+            try:
+                course_id = create_course(course_name.strip(), course_location.strip(), club_name.strip() or None)
+                create_holes_for_course(course_id, default_holes, tee_name)
+                st.success(f"Course '{course_name.strip()}' created with 18 default holes for {tee_name} tee!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error creating course: {e}")
 
 st.markdown("---")
 
@@ -163,6 +212,7 @@ if not courses:
 st.subheader("Course Overview")
 courses_df = pd.DataFrame([
     {
+        "Club": c.get("club", ""),
         "Course Name": c["name"],
         "Location": c.get("location", ""),
         "Holes": c["nr_of_holes"]
@@ -178,10 +228,17 @@ selected_name = st.selectbox("Select Course to Edit", course_names)
 course = next(c for c in courses if c["name"] == selected_name)
 
 # Tee selection
-selected_tee = st.selectbox("Tee", TEES, index=0)  # Default to Yellow
-tee_id = TEES_ID[selected_tee]
+existing_tees = get_course_tee_names(int(course["id"]))
+if not existing_tees:
+    existing_tees = TEES
+tee_options = existing_tees + ["Other"]
+selected_tee = st.selectbox("Tee", tee_options, index=0)
+custom_tee = None
+if selected_tee == "Other":
+    custom_tee = st.text_input("Custom tee name", placeholder="e.g. Blue, Back, Tournament")
+tee_name = custom_tee.strip() if custom_tee else selected_tee
 
-holes = get_holes(int(course["id"]), tee_id)
+holes = get_holes(int(course["id"]), tee_name=tee_name)
 
 if not holes:
     st.warning("No holes found for this course.")
@@ -216,8 +273,8 @@ for row in rows:
 
 if st.button("Save All Changes", type="primary", use_container_width=True):
     for hole_id, (par, dist) in updated.items():
-        update_hole(hole_id, par, dist, tee_id)
-    st.success(f"All {selected_tee} tee holes updated!")
+        update_hole(hole_id, par, dist, tee_name=tee_name)
+    st.success(f"All {tee_name} tee holes updated!")
     st.rerun()
 
 # ── Preview table ──────────────────────────────────────────────────────────────

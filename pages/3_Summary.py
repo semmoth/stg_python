@@ -13,7 +13,7 @@ from datetime import date, timedelta
 
 from db.queries import get_rounds, get_shots_for_round, get_holes, get_round
 from utils.strokes_gained import calculate_round_stats
-from utils.constants import COLOR_PRIMARY, COLOR_NEGATIVE, COLOR_POSITIVE, TEES_ID
+from utils.constants import COLOR_PRIMARY, COLOR_NEGATIVE, COLOR_POSITIVE
 
 # ── Auth guard ─────────────────────────────────────────────────────────────────
 # TODO: Re-enable authentication when config is fixed
@@ -66,12 +66,13 @@ def load_all_stats(round_ids: tuple, username: str):
     for rid in round_ids:
         r = get_round(rid)
         shots = get_shots_for_round(rid)
-        holes = get_holes(int(r["course_id"]), TEES_ID[r["tee"]])
+        holes = get_holes(int(r["course_id"]), tee_name=r["tee"])
         stats = calculate_round_stats(shots, holes)
         if stats:
             stats["date"] = r["date"]
             stats["course"] = r["course_name"]
             stats["round_id"] = rid
+            stats["tournament"] = r.get("tournament_name") or ""
             all_stats.append(stats)
     return all_stats
 
@@ -86,6 +87,7 @@ df = pd.DataFrame([
     {
         "date": s["date"],
         "course": s["course"],
+        "tournament": s["tournament"],
         "score": s["score"],
         "par": s["par"],
         "score_vs_par": s["score_vs_par"],
@@ -200,13 +202,13 @@ st.markdown("---")
 st.subheader("Round-by-Round Summary")
 
 display_df = df[[
-    "date", "course", "score_vs_par",
+    "date", "course", "tournament", "score_vs_par",
     "fir_pct", "gir_pct", "scrambling", "putts",
     "stg_tee", "stg_approach", "stg_short_game", "stg_putting", "stg_total",
 ]].copy()
 
 display_df.columns = [
-    "Date", "Course", "+/-",
+    "Date", "Course", "Tournament", "+/-",
     "FIR %", "GIR %", "Scrambling", "Putts",
     "STG Tee", "STG App", "STG SG", "STG Putt", "STG Total",
 ]

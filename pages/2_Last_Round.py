@@ -12,7 +12,7 @@ import pandas as pd
 
 from db.queries import get_rounds, get_shots_for_round, get_holes, get_round
 from utils.strokes_gained import calculate_round_stats
-from utils.constants import COLOR_PRIMARY, COLOR_ACCENT, COLOR_NEGATIVE, COLOR_POSITIVE, TEES_ID
+from utils.constants import COLOR_PRIMARY, COLOR_ACCENT, COLOR_NEGATIVE, COLOR_POSITIVE
 
 # ── Auth guard ─────────────────────────────────────────────────────────────────
 # TODO: Re-enable authentication when config is fixed
@@ -42,16 +42,18 @@ if not completed_rounds:
     st.stop()
 
 # ── Round selector ─────────────────────────────────────────────────────────────
-round_options = {
-    f"{r['date']} — {r['course_name']} ({r['tee']})": r["id"]
-    for r in completed_rounds
-}
+round_options = {}
+for r in completed_rounds:
+    label = f"{r['date']} — {r['course_name']} ({r['tee']})"
+    if r.get("tournament_name"):
+        label += f" — {r['tournament_name']}"
+    round_options[label] = r["id"]
 selected_label = st.selectbox("Select round", list(round_options.keys()))
 selected_round_id = int(round_options[selected_label])
 
 round_info = get_round(selected_round_id)
 shots = get_shots_for_round(selected_round_id)
-holes = get_holes(int(round_info["course_id"]), TEES_ID[round_info["tee"]])
+holes = get_holes(int(round_info["course_id"]), tee_name=round_info["tee"])
 
 if not shots:
     st.warning("No shots found for this round.")

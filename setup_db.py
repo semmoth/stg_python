@@ -74,48 +74,91 @@ def run_sql(sql: str, params: list = None):
 
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS tees (
+    id INTEGER PRIMARY KEY,
+    name TEXT
+);
+
+CREATE TABLE IF NOT EXISTS club (
+    id INTEGER PRIMARY KEY,
+    course_name TEXT
+);
+
 CREATE TABLE IF NOT EXISTS courses (
-    id    INTEGER PRIMARY KEY,
-    name  TEXT NOT NULL,
-    location TEXT
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    location TEXT,
+    club_id INTEGER,
+    nr_of_holes INTEGER,
+    club TEXT,
+    FOREIGN KEY (club_id) REFERENCES club(id)
 );
 
 CREATE TABLE IF NOT EXISTS holes (
-    id               INTEGER PRIMARY KEY,
-    course_id        INTEGER NOT NULL REFERENCES courses(id),
-    hole_number      INTEGER NOT NULL,
-    par              INTEGER NOT NULL DEFAULT 4,
-    distance_meters  INTEGER,
+    id INTEGER PRIMARY KEY,
+    course_id INTEGER NOT NULL,
+    hole_number INTEGER NOT NULL,
+    FOREIGN KEY (course_id) REFERENCES courses(id),
     UNIQUE(course_id, hole_number)
 );
 
+CREATE TABLE IF NOT EXISTS hole_tees (
+    id INTEGER PRIMARY KEY,
+    hole_id INTEGER NOT NULL,
+    course_id INTEGER NOT NULL,
+    tee_id INTEGER NOT NULL,
+    distance INTEGER,
+    par INTEGER,
+    hole_number INTEGER,
+    tee_name TEXT,
+    FOREIGN KEY (tee_id) REFERENCES tees(id),
+    FOREIGN KEY (course_id) REFERENCES courses(id),
+    FOREIGN KEY (hole_id) REFERENCES holes(id)
+);
+
 CREATE TABLE IF NOT EXISTS rounds (
-    id         INTEGER PRIMARY KEY,
-    username   TEXT NOT NULL,
-    course_id  INTEGER NOT NULL REFERENCES courses(id),
-    date       TEXT NOT NULL,
-    tee        TEXT,
-    completed  INTEGER DEFAULT 0,
-    created_at TEXT DEFAULT (datetime('now'))
+    id INTEGER PRIMARY KEY,
+    username TEXT NOT NULL,
+    course_id INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    tee TEXT,
+    completed INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT datetime('now'),
+    club_id INTEGER,
+    tournament_id INTEGER,
+    FOREIGN KEY (club_id) REFERENCES club(id),
+    FOREIGN KEY (course_id) REFERENCES courses(id)
 );
 
 CREATE TABLE IF NOT EXISTS shots (
-    id               INTEGER PRIMARY KEY,
-    round_id         INTEGER NOT NULL REFERENCES rounds(id),
-    hole_number      INTEGER NOT NULL,
-    shot_number      INTEGER NOT NULL,
-    surface          TEXT NOT NULL,
+    id INTEGER PRIMARY KEY,
+    round_id INTEGER NOT NULL,
+    hole_number INTEGER NOT NULL,
+    shot_number INTEGER NOT NULL,
+    surface TEXT NOT NULL,
     distance_to_hole REAL NOT NULL,
-    distance_unit    TEXT NOT NULL DEFAULT 'meters',
-    club             TEXT,
-    shot_distance    REAL,
-    holed            INTEGER DEFAULT 0,
-    created_at       TEXT DEFAULT (datetime('now'))
+    distance_unit TEXT DEFAULT 'meters' NOT NULL,
+    club TEXT,
+    shot_distance REAL,
+    holed INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT datetime('now'),
+    penalty INTEGER,
+    FOREIGN KEY (round_id) REFERENCES rounds(id)
+);
+
+CREATE TABLE IF NOT EXISTS tournaments (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    course_id INTEGER NOT NULL,
+    tee TEXT NOT NULL,
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    created_at TEXT DEFAULT datetime('now'),
+    FOREIGN KEY (course_id) REFERENCES courses(id)
 );
 """
 
 # Gullbringa Golf and Country Club — 18 holes
-# Par and distances are placeholders. Update them via the Course Admin page in the app.
 GULLBRINGA_HOLES = [
     # (hole, par, distance_meters)
     (1,  4, 350),
@@ -139,6 +182,14 @@ GULLBRINGA_HOLES = [
 ]
 
 
+def table_has_column(table_name: str, column_name: str) -> bool:
+    result = run_sql(f"PRAGMA table_info({table_name})")
+    for row in result["rows"]:
+        if row[1]["value"] == column_name:
+            return True
+    return False
+
+
 def setup():
     print("Creating tables...")
     for stmt in SCHEMA.strip().split(";"):
@@ -146,6 +197,15 @@ def setup():
         if stmt:
             run_sql(stmt)
     print("  Tables created.")
+
+    # Ensure default tees exist
+    print("  Seeding default tees...")
+    tee_names = ["Yellow", "Red", "White"]
+    for tee_name in tee_names:
+        existing = run_sql("SELECT id FROM tees WHERE name = ?", [tee_name])
+        if not existing["rows"]:
+            run_sql("INSERT INTO tees (name) VALUES (?)", [tee_name])
+            print(f"    Added tee: {tee_name}")
 
     # Insert course if not exists
     existing = run_sql("SELECT id FROM courses WHERE name = 'Gullbringa Golf and Country Club'")
@@ -163,12 +223,24 @@ def setup():
 
     existing_holes = run_sql("SELECT id FROM holes WHERE course_id = ?", [course_id])
     if not existing_holes["rows"]:
+        print("  Seeding 18 holes for Gullbringa...")
         for hole_num, par, dist in GULLBRINGA_HOLES:
-            run_sql(
-                "INSERT INTO holes (course_id, hole_number, par, distance_meters) VALUES (?, ?, ?, ?)",
-                [course_id, hole_num, par, dist],
+            hole_result = run_sql(
+                "INSERT INTO holes (course_id, hole_number) VALUES (?, ?)",
+                [course_id, hole_num],
             )
-        print(f"  18 holes seeded for Gullbringa (placeholder distances — update via Course Admin).")
+            hole_id = hole_result["last_insert_rowid"]
+            
+            # Get Yellow tee ID
+            tee_result = run_sql("SELECT id FROM tees WHERE name = 'Yellow'")
+            tee_id = int(tee_result["rows"][0][0]["value"])
+            
+            # Insert hole_tees for Yellow
+            run_sql(
+                "INSERT INTO hole_tees (hole_id, course_id, tee_id, tee_name, par, distance, hole_number) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [hole_id, course_id, tee_id, "Yellow", par, dist, hole_num],
+            )
+        print(f"  18 holes seeded for Gullbringa.")
     else:
         print("  Holes already exist — skipping.")
 
@@ -181,3 +253,4 @@ def setup():
 
 if __name__ == "__main__":
     setup()
+

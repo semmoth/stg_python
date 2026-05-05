@@ -16,11 +16,12 @@ import streamlit_authenticator as stauth
 from datetime import date
 
 from db.queries import (
-    get_courses, get_holes, get_hole,
+    get_courses, get_course_tee_names, get_holes, get_hole,
     create_round, complete_round, delete_round,
     save_shot, get_shots_for_hole, delete_shots_for_hole,
+    get_tournaments,
 )
-from utils.constants import SURFACES, CLUBS, TEES, TEES_ID, CLUB_DISTANCE_ESTIMATES
+from utils.constants import SURFACES, CLUBS, TEES, CLUB_DISTANCE_ESTIMATES
 
 # ── Auth guard ─────────────────────────────────────────────────────────────────
 # TODO: Re-enable authentication when config is fixed
@@ -63,15 +64,41 @@ if st.session_state.round_id is None:
         st.error("No courses found. Run setup_db.py first.")
         st.stop()
 
-    course_names = [c["name"] for c in courses]
-    selected_course_name = st.selectbox("Course", course_names)
-    course = next(c for c in courses if c["name"] == selected_course_name)
+    tournaments = get_tournaments()
+    tournament_options = ["None"] + [
+        f"{t['name']} — {t['course_name']} ({t['tee']}) {t['start_date']} → {t['end_date']}"
+        for t in tournaments
+    ]
+    selected_tournament_option = st.selectbox("Tournament", tournament_options)
+    selected_tournament = None
+    if selected_tournament_option != "None":
+        selected_tournament = tournaments[tournament_options.index(selected_tournament_option) - 1]
 
-    col1, col2 = st.columns(2)
-    with col1:
-        round_date = st.date_input("Date", value=date.today())
-    with col2:
-        tee = st.selectbox("Tee", TEES)
+    if selected_tournament:
+        course = next(c for c in courses if int(c["id"]) == int(selected_tournament["course_id"]))
+        st.text_input("Course", course["name"], disabled=True)
+        st.text_input("Tee", selected_tournament["tee"], disabled=True)
+        round_date = st.date_input(
+            "Date",
+            value=date.fromisoformat(selected_tournament["start_date"]),
+            min_value=date.fromisoformat(selected_tournament["start_date"]),
+            max_value=date.fromisoformat(selected_tournament["end_date"]),
+        )
+        tee = selected_tournament["tee"]
+    else:
+        course_names = [c["name"] for c in courses]
+        selected_course_name = st.selectbox("Course", course_names)
+        course = next(c for c in courses if c["name"] == selected_course_name)
+
+        tee_options = get_course_tee_names(int(course["id"]))
+        if not tee_options:
+            tee_options = TEES
+
+        col1, col2 = st.columns(2)
+        with col1:
+            round_date = st.date_input("Date", value=date.today())
+        with col2:
+            tee = st.selectbox("Tee", tee_options)
 
     if st.button("Start Round ⛳", type="primary", use_container_width=True):
         round_id = create_round(
@@ -79,9 +106,10 @@ if st.session_state.round_id is None:
             course_id=int(course["id"]),
             date=str(round_date),
             tee=tee,
+            tournament_id=int(selected_tournament["id"]) if selected_tournament else None,
         )
         # Get total holes for this course
-        holes = get_holes(int(course["id"]), TEES_ID[tee])
+        holes = get_holes(int(course["id"]), tee_name=tee)
         st.session_state.total_holes = len(holes)
         st.session_state.round_id = round_id
         st.session_state.current_hole = 1
@@ -122,8 +150,7 @@ round_info = None
 from db.queries import get_round
 round_info = get_round(round_id)
 course_id = int(round_info["course_id"]) if round_info else None
-tee_id = TEES_ID[round_info["tee"]] if round_info else 1
-hole_info = get_hole(course_id, current_hole, tee_id) if course_id else None
+hole_info = get_hole(course_id, current_hole, tee_name=round_info["tee"]) if course_id else None
 par = int(hole_info["par"]) if hole_info else 4
 hole_dist = hole_info["distance"] if hole_info else "?"
 
@@ -148,16 +175,14 @@ if hole_shots:
         dist = s["distance_to_hole"]
         unit = s["distance_unit"]
         club = s.get("club") or ("Putter" if surface == "Green" else "—")
-        shot_dist = s.get("shot_distance")
         holed = s.get("holed", False)
 
         dist_label = f"{dist} ft" if unit == "feet" else f"{dist} m"
-        shot_dist_label = f" | shot {shot_dist} m" if shot_dist else ""
         holed_label = " ✅ Holed" if holed else ""
         penalty_label = " ⚠️ Penalty" if s.get("penalty", False) else ""
         st.markdown(
             f"**Shot {s['shot_number']}** — {surface} | {dist_label} to hole"
-            f" | {club}{shot_dist_label}{holed_label}{penalty_label}"
+            f" | {club}{holed_label}{penalty_label}"
         )
     st.markdown("---")
 
@@ -184,6 +209,8 @@ if hole_shots:
         next_surface = "Green"
     elif shot_number == 4 and par == 5:
         next_surface = "Green"
+    elif last_dist is not None and last_dist <= 130 and not last.get("holed", False):
+        next_surface = "Green"
 
     if last_penalty:
         next_distance = last_dist
@@ -202,34 +229,31 @@ if not already_holed:
         distance = st.number_input(
             "Distance to hole (meters)", min_value=1, max_value=600,
             value=int(hole_dist) if hole_dist and hole_dist != "?" else 150,
-            step=1, key="dist_input",
+            step=1, key=f"dist_input_{shot_number}",
         )
-        club = st.selectbox("Club", CLUBS, key="club_select")
-        shot_dist_val = st.number_input(
-            "Shot distance (meters) — optional, for driving stats",
-            min_value=0, max_value=400, value=None, step=1, key="shot_dist_input",
-        )
-        shot_dist_val = float(shot_dist_val) if shot_dist_val > 0 else None
-        holed = st.checkbox("Holed ✅", key="holed_check")
-        penalty = st.checkbox("Penalty shot", value=False, key="penalty_check")
+        club = st.radio("Club", CLUBS, key=f"club_select_{shot_number}", horizontal=True)
+        shot_dist_val = None  # Removed shot distance input
+        holed = st.checkbox("Holed ✅", key=f"holed_check_{shot_number}")
+        penalty = st.checkbox("Penalty shot", value=False, key=f"penalty_check_{shot_number}")
         distance_unit = "meters"
 
     else:
         # Subsequent shots
         non_tee_surfaces = [s for s in SURFACES if s != "Tee"]
         default_surface = next_surface if next_surface in non_tee_surfaces else non_tee_surfaces[0]
-        surface = st.selectbox(
+        surface = st.radio(
             "Surface", non_tee_surfaces,
             index=non_tee_surfaces.index(default_surface),
-            key="surface_select",
+            key=f"surface_select_{shot_number}",
+            horizontal=True,
         )
 
         if surface == "Green":
             distance_unit = "feet"
             distance = st.number_input(
-                "Distance to hole (feet)", min_value=1, max_value=200,
+                "Remaining distance to hole (feet)", min_value=1, max_value=200,
                 value=None,
-                step=1, key="dist_input",
+                step=1, key=f"dist_input_{shot_number}",
             )
             club = "Putter"
             st.markdown("**Club:** Putter (automatic)")
@@ -237,9 +261,9 @@ if not already_holed:
         else:
             distance_unit = "meters"
             distance = st.number_input(
-                "Distance to hole (meters)", min_value=1, max_value=600,
+                "Remaining distance to hole (meters)", min_value=1, max_value=600,
                 value=None,
-                step=1, key="dist_input",
+                step=1, key=f"dist_input_{shot_number}",
             )
             suggested_club = next_club or None
             if suggested_club is None and next_distance is not None:
@@ -247,15 +271,11 @@ if not already_holed:
                 candidate = min(CLUB_DISTANCE_ESTIMATES.items(), key=lambda x: abs(x[1] - next_distance))[0]
                 suggested_club = candidate
             club_index = CLUBS.index(suggested_club) if suggested_club in CLUBS else 0
-            club = st.selectbox("Club", CLUBS, index=club_index, key="club_select")
-            shot_dist_val = st.number_input(
-                "Shot distance (meters) — optional",
-                min_value=0, max_value=600, value=None, step=1, key="shot_dist_input",
-            )
-            shot_dist_val = float(shot_dist_val) if shot_dist_val > 0 else None
+            club = st.radio("Club", CLUBS, index=club_index, key=f"club_select_{shot_number}", horizontal=True)
+            shot_dist_val = None  # Removed shot distance input
 
-        holed = st.checkbox("Holed ✅", key="holed_check")
-        penalty = st.checkbox("Penalty shot", value=False, key="penalty_check")
+        holed = st.checkbox("Holed ✅", key=f"holed_check_{shot_number}")
+        penalty = st.checkbox("Penalty shot", value=False, key=f"penalty_check_{shot_number}")
 
     # ── Add shot button ────────────────────────────────────────────────────────
     if st.button(f"Add Shot {shot_number}", type="primary", use_container_width=True):

@@ -19,12 +19,13 @@ CLUBS = [
     "Putter",
 ]
 
-TEES = ["Yellow", "Red"]
+TEES = ["Yellow", "Red", "White"]
 
-# Tee ID mapping for database
+# Tee ID mapping for database (backwards compatibility)
 TEES_ID = {
     "Yellow": 1,
     "Red": 2,
+    "White": 3,
 }
 
 CLUB_DISTANCE_ESTIMATES = {

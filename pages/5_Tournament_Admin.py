@@ -55,7 +55,7 @@ with st.form("tournament_form"):
                 str(end_date),
             )
             st.success(f"Tournament '{tournament_name.strip()}' created for {selected_course_name}.")
-            st.experimental_rerun()
+            st.rerun()
 
 st.markdown("---")
 

@@ -3,13 +3,9 @@ Course Admin — update hole par and distance values for each course.
 Only needed once to set up Gullbringa correctly.
 """
 import streamlit as st
-import yaml
-from yaml.loader import SafeLoader
-import streamlit_authenticator as stauth
 import pandas as pd
 import re
 from PIL import Image
-import io
 import numpy as np
 
 from db.queries import get_courses, get_course_tee_names, get_holes, update_hole, create_course, create_holes_for_course
@@ -72,22 +68,9 @@ def extract_course_data_from_image(image) -> list[tuple]:
 
     return holes_data[:18]  # Limit to 18 holes
 
-# ── Auth guard ─────────────────────────────────────────────────────────────────
-# TODO: Re-enable authentication when config is fixed
-# with open("config.yaml") as f:
-#     config = yaml.load(f, Loader=SafeLoader)
-# authenticator = stauth.Authenticate(
-#     config["credentials"], config["cookie"]["name"],
-#     config["cookie"]["key"], config["cookie"]["expiry_days"],
-# )
-# _, auth_status, username = authenticator.login(location="unrendered")
-# if not auth_status:
-#     st.warning("Please log in from the Home page.")
-#     st.stop()
-
 # Use session state values set from app.py
-username = st.session_state.get("username", "dev")
-name = st.session_state.get("name", "Developer")
+username = st.session_state.get("username", "stefan")
+name = st.session_state.get("name", "Stefan")
 
 # ── Page ───────────────────────────────────────────────────────────────────────
 st.title("⚙️ Course Admin")

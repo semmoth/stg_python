@@ -3,9 +3,6 @@ Season summary and historical strokes gained trends.
 Mirrors the Summary + Strokes Gained tabs from the original Shiny app.
 """
 import streamlit as st
-import yaml
-from yaml.loader import SafeLoader
-import streamlit_authenticator as stauth
 import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
@@ -15,22 +12,9 @@ from db.queries import get_rounds, get_shots_for_round, get_holes, get_round
 from utils.strokes_gained import calculate_round_stats
 from utils.constants import COLOR_PRIMARY, COLOR_NEGATIVE, COLOR_POSITIVE
 
-# ── Auth guard ─────────────────────────────────────────────────────────────────
-# TODO: Re-enable authentication when config is fixed
-# with open("config.yaml") as f:
-#     config = yaml.load(f, Loader=SafeLoader)
-# authenticator = stauth.Authenticate(
-#     config["credentials"], config["cookie"]["name"],
-#     config["cookie"]["key"], config["cookie"]["expiry_days"],
-# )
-# _, auth_status, username = authenticator.login(location="unrendered")
-# if not auth_status:
-#     st.warning("Please log in from the Home page.")
-#     st.stop()
-
 # Use session state values set from app.py
-username = st.session_state.get("username", "dev")
-name = st.session_state.get("name", "Developer")
+username = st.session_state.get("username", "stefan")
+name = st.session_state.get("name", "Stefan")
 
 # ── Page ───────────────────────────────────────────────────────────────────────
 st.title("📈 Season Summary")
@@ -96,11 +80,12 @@ df = pd.DataFrame([
         "scrambling": s["scrambling"],
         "putts": s["putts"],
         "three_putts": s["three_putts"],
-        "stg_tee": s["stg_tee"],
-        "stg_approach": s["stg_approach"],
-        "stg_short_game": s["stg_short_game"],
-        "stg_putting": s["stg_putting"],
-        "stg_total": s["stg_total"],
+        "stg_tee": s.get("stg_tee", 0.0),
+        "stg_approach": s.get("stg_approach", 0.0),
+        "stg_recovery": s.get("stg_recovery", 0.0),
+        "stg_short_game": s.get("stg_short_game", 0.0),
+        "stg_putting": s.get("stg_putting", 0.0),
+        "stg_total": s.get("stg_total", 0.0),
         "avg_drive": s.get("avg_drive"),
         "tiger5_par5_bogeys": s.get("tiger5_par5_bogeys", 0),
         "tiger5_double_bogeys": s.get("tiger5_double_bogeys", 0),
@@ -168,10 +153,11 @@ st.subheader("Strokes Gained — Trends")
 stg_cols = {
     "stg_tee": "Tee",
     "stg_approach": "Approach",
+    "stg_recovery": "Recovery",
     "stg_short_game": "Short Game",
     "stg_putting": "Putting",
 }
-colors_stg = [COLOR_PRIMARY, "royalblue", "orange", "purple"]
+colors_stg = [COLOR_PRIMARY, "royalblue", "cyan", "orange", "purple"]
 
 fig_stg = go.Figure()
 for (col, label), color in zip(stg_cols.items(), colors_stg):
@@ -188,13 +174,13 @@ fig_stg.update_layout(
 st.plotly_chart(fig_stg, use_container_width=True)
 
 # ── Average STG by category ────────────────────────────────────────────────────
-col1, col2, col3, col4, col5 = st.columns(5)
-for col, (key, label) in zip([col1, col2, col3, col4], stg_cols.items()):
+col1, col2, col3, col4, col5, col6 = st.columns(6)
+for col, (key, label) in zip([col1, col2, col3, col4, col5], stg_cols.items()):
     avg = df[key].mean()
     col.metric(label, f"{avg:+.2f}")
 
 # Total STG
-col5.metric("Total STG", f"{df['stg_total'].mean():+.2f}")
+col6.metric("Total STG", f"{df['stg_total'].mean():+.2f}")
 
 st.markdown("---")
 
@@ -204,13 +190,13 @@ st.subheader("Round-by-Round Summary")
 display_df = df[[
     "date", "course", "tournament", "score_vs_par",
     "fir_pct", "gir_pct", "scrambling", "putts",
-    "stg_tee", "stg_approach", "stg_short_game", "stg_putting", "stg_total",
+    "stg_tee", "stg_approach", "stg_recovery", "stg_short_game", "stg_putting", "stg_total",
 ]].copy()
 
 display_df.columns = [
     "Date", "Course", "Tournament", "+/-",
     "FIR %", "GIR %", "Scrambling", "Putts",
-    "STG Tee", "STG App", "STG SG", "STG Putt", "STG Total",
+    "STG Tee", "STG App", "STG Rec", "STG SG", "STG Putt", "STG Total",
 ]
 display_df["FIR %"] = (display_df["FIR %"] * 100).round(0).astype(int).astype(str) + "%"
 display_df["GIR %"] = (display_df["GIR %"] * 100).round(0).astype(int).astype(str) + "%"

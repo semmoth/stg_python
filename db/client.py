@@ -35,10 +35,18 @@ def _parse_rows(result: dict) -> list[dict]:
 
 class TursoClient:
     def __init__(self):
+        try:
+            turso_url = st.secrets["TURSO_URL"].rstrip("/")
+            self.token = st.secrets["TURSO_TOKEN"]
+        except KeyError as e:
+            st.error(
+                f"Missing database secret: {e}. "
+                "Add TURSO_URL and TURSO_TOKEN to your Streamlit secrets."
+            )
+            st.stop()
+
         # Convert libsql:// to https:// for HTTP API
-        turso_url = st.secrets["TURSO_URL"].rstrip("/")
         self.url = turso_url.replace("libsql://", "https://")
-        self.token = st.secrets["TURSO_TOKEN"]
         self.headers = {
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json",
@@ -52,13 +60,24 @@ class TursoClient:
                 {"type": "close"},
             ]
         }
-        resp = requests.post(
-            f"{self.url}/v2/pipeline",
-            headers=self.headers,
-            json=payload,
-            timeout=10,
-        )
-        resp.raise_for_status()
+        try:
+            resp = requests.post(
+                f"{self.url}/v2/pipeline",
+                headers=self.headers,
+                json=payload,
+                timeout=10,
+            )
+            resp.raise_for_status()
+        except requests.exceptions.ConnectionError:
+            st.error("Cannot reach the database. Check your internet connection.")
+            st.stop()
+        except requests.exceptions.Timeout:
+            st.error("Database request timed out. Please try again.")
+            st.stop()
+        except requests.exceptions.HTTPError as e:
+            st.error(f"Database error ({e.response.status_code}). Check your TURSO_TOKEN.")
+            st.stop()
+
         data = resp.json()
         result = data["results"][0]
         if result["type"] == "error":

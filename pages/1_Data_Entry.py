@@ -6,39 +6,23 @@ Flow:
   2. For each hole 1-18:
        - Shot 1 is always Tee. Enter distance to hole (meters).
        - Each additional shot: choose surface, enter distance, choose club
-         (auto Putter on Green), optionally enter shot distance, tick "Holed".
+         (auto Putter on Green), tick "Holed".
   3. Save hole → move to next. After hole 18 → round is complete.
 """
 import streamlit as st
-import yaml
-from yaml.loader import SafeLoader
-import streamlit_authenticator as stauth
 from datetime import date
 
 from db.queries import (
     get_courses, get_course_tee_names, get_holes, get_hole,
     create_round, complete_round, delete_round,
-    save_shot, get_shots_for_hole, delete_shots_for_hole,
+    save_shot, delete_shots_for_hole,
     get_tournaments,
 )
-from utils.constants import SURFACES, CLUBS, TEES, CLUB_DISTANCE_ESTIMATES
-
-# ── Auth guard ─────────────────────────────────────────────────────────────────
-# TODO: Re-enable authentication when config is fixed
-# with open("config.yaml") as f:
-#     config = yaml.load(f, Loader=SafeLoader)
-# authenticator = stauth.Authenticate(
-#     config["credentials"], config["cookie"]["name"],
-#     config["cookie"]["key"], config["cookie"]["expiry_days"],
-# )
-# _, auth_status, username = authenticator.login(location="unrendered")
-# if not auth_status:
-#     st.warning("Please log in from the Home page.")
-#     st.stop()
+from utils.constants import SURFACES, CLUBS, TEES
 
 # Use session state values set from app.py
-username = st.session_state.get("username", "dev")
-name = st.session_state.get("name", "Developer")
+username = st.session_state.get("username", "stefan")
+name = st.session_state.get("name", "Stefan")
 
 # ── Session state initialisation ───────────────────────────────────────────────
 for key, default in [
@@ -146,7 +130,6 @@ if current_hole > total_holes:
     st.stop()
 
 # ── Get hole info from DB ──────────────────────────────────────────────────────
-round_info = None
 from db.queries import get_round
 round_info = get_round(round_id)
 course_id = int(round_info["course_id"]) if round_info else None
@@ -192,17 +175,14 @@ already_holed = hole_shots and hole_shots[-1].get("holed", False)
 # ── Add a new shot ─────────────────────────────────────────────────────────────
 shot_number = len(hole_shots) + 1
 
-# Auto-suggest next surface and distance based on prior shot
+# Auto-suggest next surface based on par and shot number
 next_surface = None
-next_distance = None
 next_club = None
 if hole_shots:
     last = hole_shots[-1]
     last_dist = last.get("distance_to_hole")
-    last_shot_distance = last.get("shot_distance")
     last_penalty = last.get("penalty", False)
 
-    # Default to Green based on par and shot number
     if shot_number == 2 and par == 3:
         next_surface = "Green"
     elif shot_number == 3 and par == 4:
@@ -213,11 +193,8 @@ if hole_shots:
         next_surface = "Green"
 
     if last_penalty:
-        next_distance = last_dist
         next_surface = last.get("surface", "Fairway")
         next_club = last.get("club")
-    elif last_dist is not None and last_shot_distance is not None:
-        next_distance = max(1, int(last_dist - last_shot_distance))
 
 if not already_holed:
     st.subheader(f"Shot {shot_number}")
@@ -232,7 +209,6 @@ if not already_holed:
             step=1, key=f"dist_input_{shot_number}",
         )
         club = st.radio("Club", CLUBS, key=f"club_select_{shot_number}", horizontal=True)
-        shot_dist_val = None  # Removed shot distance input
         holed = st.checkbox("Holed ✅", key=f"holed_check_{shot_number}")
         penalty = st.checkbox("Penalty shot", value=False, key=f"penalty_check_{shot_number}")
         distance_unit = "meters"
@@ -257,7 +233,6 @@ if not already_holed:
             )
             club = "Putter"
             st.markdown("**Club:** Putter (automatic)")
-            shot_dist_val = None
         else:
             distance_unit = "meters"
             distance = st.number_input(
@@ -266,13 +241,8 @@ if not already_holed:
                 step=1, key=f"dist_input_{shot_number}",
             )
             suggested_club = next_club or None
-            if suggested_club is None and next_distance is not None:
-                # pick closest club based on estimate
-                candidate = min(CLUB_DISTANCE_ESTIMATES.items(), key=lambda x: abs(x[1] - next_distance))[0]
-                suggested_club = candidate
             club_index = CLUBS.index(suggested_club) if suggested_club in CLUBS else 0
             club = st.radio("Club", CLUBS, index=club_index, key=f"club_select_{shot_number}", horizontal=True)
-            shot_dist_val = None  # Removed shot distance input
 
         holed = st.checkbox("Holed ✅", key=f"holed_check_{shot_number}")
         penalty = st.checkbox("Penalty shot", value=False, key=f"penalty_check_{shot_number}")
@@ -285,7 +255,6 @@ if not already_holed:
             "distance_to_hole": int(distance) if distance is not None else None,
             "distance_unit": distance_unit,
             "club": club,
-            "shot_distance": int(shot_dist_val) if shot_dist_val is not None else None,
             "holed": holed,
             "penalty": penalty,
         }
@@ -321,7 +290,6 @@ with col_save:
                 distance_to_hole=s["distance_to_hole"],
                 distance_unit=s["distance_unit"],
                 club=s.get("club"),
-                shot_distance=s.get("shot_distance"),
                 holed=s.get("holed", False),
                 penalty=s.get("penalty", False),
             )

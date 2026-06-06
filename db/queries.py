@@ -207,7 +207,6 @@ def save_shot(
     distance_to_hole: int,
     distance_unit: str,
     club: str | None,
-    shot_distance: int | None,
     holed: bool,
     penalty: bool = False,
 ) -> int:
@@ -221,7 +220,7 @@ def save_shot(
             int(distance_to_hole),
             distance_unit,
             club,
-            int(shot_distance) if shot_distance else None,
+            None,
             holed,
             int(penalty),
         ],

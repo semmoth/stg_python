@@ -3,9 +3,6 @@ Last Round stats page — mirrors the 'Last Round' tab from the original Shiny a
 Shows: scorecard, score vs par chart, round stats, STG breakdown, score distribution.
 """
 import streamlit as st
-import yaml
-from yaml.loader import SafeLoader
-import streamlit_authenticator as stauth
 import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
@@ -14,22 +11,9 @@ from db.queries import get_rounds, get_shots_for_round, get_holes, get_round
 from utils.strokes_gained import calculate_round_stats
 from utils.constants import COLOR_PRIMARY, COLOR_ACCENT, COLOR_NEGATIVE, COLOR_POSITIVE
 
-# ── Auth guard ─────────────────────────────────────────────────────────────────
-# TODO: Re-enable authentication when config is fixed
-# with open("config.yaml") as f:
-#     config = yaml.load(f, Loader=SafeLoader)
-# authenticator = stauth.Authenticate(
-#     config["credentials"], config["cookie"]["name"],
-#     config["cookie"]["key"], config["cookie"]["expiry_days"],
-# )
-# _, auth_status, username = authenticator.login(location="unrendered")
-# if not auth_status:
-#     st.warning("Please log in from the Home page.")
-#     st.stop()
-
 # Use session state values set from app.py
-username = st.session_state.get("username", "dev")
-name = st.session_state.get("name", "Developer")
+username = st.session_state.get("username", "stefan")
+name = st.session_state.get("name", "Stefan")
 
 # ── Page ───────────────────────────────────────────────────────────────────────
 st.title("📊 Last Round")

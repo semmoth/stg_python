@@ -1,11 +1,8 @@
 """
 Golf Tracker — main entry point.
-Handles login and redirects to the home dashboard.
+Authentication is handled by Streamlit Cloud viewer authentication (SSO gate).
 """
 import streamlit as st
-import yaml
-from yaml.loader import SafeLoader
-import streamlit_authenticator as stauth
 
 st.set_page_config(
     page_title="Golf Tracker",
@@ -14,41 +11,13 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Auth ───────────────────────────────────────────────────────────────────────
-# TODO: Re-enable authentication when config is fixed
-# with open("config.yaml") as f:
-#     config = yaml.load(f, Loader=SafeLoader)
-# 
-# authenticator = stauth.Authenticate(
-#     config["credentials"],
-#     config["cookie"]["name"],
-#     config["cookie"]["key"],
-#     config["cookie"]["expiry_days"],
-# )
-# 
-# name, auth_status, username = authenticator.login(location="unrendered")
-# 
-# if auth_status is False:
-#     st.error("Incorrect username or password.")
-#     st.stop()
-# 
-# if auth_status is None:
-#     st.info("Please log in to continue.")
-#     st.stop()
-
-# Temporary: bypass authentication
-name = "Developer"
-username = "dev"
+# Identity — single user, auth handled externally by Streamlit Cloud SSO
+username = "stefan"
+name = "Stefan"
 
 # Store in session for pages to access
 st.session_state["username"] = username
 st.session_state["name"] = name
-
-# ── Sidebar ───────────────────────────────────────────────────────────────────
-# Logout button removed while authentication is disabled
-# with st.sidebar:
-#     st.markdown(f"**Logged in as:** {name}")
-#     authenticator.logout("Logout", "sidebar")
 
 # ── Home page ──────────────────────────────────────────────────────────────────
 st.title("⛳ Golf Tracker")

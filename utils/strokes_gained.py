@@ -51,7 +51,23 @@ def _round_distance(distance: float, surface: str) -> float:
     return d
 
 
+def _normalize_surface(surface: str) -> str:
+    if not isinstance(surface, str):
+        return surface
+    clean = surface.strip().title()
+    mapping = {
+        "Tee": "Tee",
+        "Fairway": "Fairway",
+        "Rough": "Rough",
+        "Sand": "Sand",
+        "Recovery": "Recovery",
+        "Green": "Green",
+    }
+    return mapping.get(clean, surface.strip())
+
+
 def _lookup_swing(surface: str, distance_m: float) -> float | None:
+    surface = _normalize_surface(surface)
     swing = _load_swing()
     d = int(round(_round_distance(distance_m, surface)))
     row = swing[swing["Meter"] == d]
@@ -92,6 +108,7 @@ def expected_strokes(surface: str, distance: float, distance_unit: str = "meters
     distance: in meters for non-green, feet for Green
     distance_unit: 'meters' or 'feet' (used for Green shots entered in feet)
     """
+    surface = _normalize_surface(surface)
     if surface == "Green":
         feet = distance if distance_unit == "feet" else distance * FEET_PER_METER
         return _lookup_putting(feet)
@@ -129,10 +146,13 @@ def shot_strokes_gained(
 
 def _shot_phase(surface: str, distance_m: float) -> str:
     """Categorise a shot into a strokes gained phase."""
+    surface = _normalize_surface(surface)
     if surface == "Tee":
         return "tee"
     if surface == "Green":
         return "putting"
+    if surface == "Recovery":
+        return "recovery"
     if distance_m <= 30:
         return "short_game"
     return "approach"
@@ -164,7 +184,7 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
 
     # ── Per-hole results ───────────────────────────────────────────────────────
     scorecard = []
-    stg_tee_list, stg_app_list, stg_sg_list, stg_putt_list = [], [], [], []
+    stg_tee_list, stg_app_list, stg_sg_list, stg_putt_list, stg_recovery_list = [], [], [], [], []
     fir_results, gir_results = [], []
     driving_distances = []
     # Putting distance tracking
@@ -189,9 +209,9 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
         score = len(hole_shots)
 
         # Per-shot SG
-        hole_stg = {"tee": 0.0, "approach": 0.0, "short_game": 0.0, "putting": 0.0}
+        hole_stg = {"tee": 0.0, "approach": 0.0, "recovery": 0.0, "short_game": 0.0, "putting": 0.0}
         for i, shot in enumerate(hole_shots):
-            surface = shot["surface"]
+            surface = (shot["surface"] or "").strip()
             dist = float(shot["distance_to_hole"]) if shot["distance_to_hole"] else 0
             unit = shot["distance_unit"] or "meters"
             holed = bool(int(shot["holed"])) if shot["holed"] is not None else False
@@ -219,7 +239,7 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
 
             if i + 1 < len(hole_shots):
                 next_shot = hole_shots[i + 1]
-                next_surface = next_shot["surface"]
+                next_surface = (next_shot["surface"] or "").strip()
                 next_dist = float(next_shot["distance_to_hole"]) if next_shot["distance_to_hole"] else 0
                 next_unit = next_shot["distance_unit"] or "meters"
                 sg = shot_strokes_gained(surface, dist, unit, next_surface, next_dist, next_unit, False)
@@ -245,6 +265,7 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
 
         stg_tee_list.append(hole_stg["tee"])
         stg_app_list.append(hole_stg["approach"])
+        stg_recovery_list.append(hole_stg["recovery"])
         stg_sg_list.append(hole_stg["short_game"])
         stg_putt_list.append(hole_stg["putting"])
 
@@ -323,6 +344,7 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
             "fir": fir_results[-1] if par > 3 else None,
             "stg_tee": round(hole_stg["tee"], 2),
             "stg_approach": round(hole_stg["approach"], 2),
+            "stg_recovery": round(hole_stg["recovery"], 2),
             "stg_short_game": round(hole_stg["short_game"], 2),
             "stg_putting": round(hole_stg["putting"], 2),
             # Tiger 5 Rules
@@ -366,7 +388,7 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
 
     stg_total = (
         sum(stg_tee_list) + sum(stg_app_list)
-        + sum(stg_sg_list) + sum(stg_putt_list)
+        + sum(stg_recovery_list) + sum(stg_sg_list) + sum(stg_putt_list)
     )
 
     # Score vs Par by par type
@@ -414,6 +436,7 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
         # Normalised to 18 holes
         "stg_tee": round(sum(stg_tee_list) * norm, 2),
         "stg_approach": round(sum(stg_app_list) * norm, 2),
+        "stg_recovery": round(sum(stg_recovery_list) * norm, 2),
         "stg_short_game": round(sum(stg_sg_list) * norm, 2),
         "stg_putting": round(sum(stg_putt_list) * norm, 2),
         "stg_total": round(stg_total * norm, 2),

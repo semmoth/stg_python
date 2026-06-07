@@ -255,6 +255,46 @@ def delete_shots_for_hole(round_id: int, hole_number: int):
     )
 
 
+# ── Practice Log ───────────────────────────────────────────────────────────────
+
+def _ensure_practice_table():
+    get_client().execute("""
+        CREATE TABLE IF NOT EXISTS practice_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            date TEXT NOT NULL,
+            type TEXT NOT NULL,
+            duration_minutes INTEGER,
+            notes TEXT,
+            rating INTEGER
+        )
+    """)
+
+
+def create_practice_session(
+    username: str, date: str, type: str,
+    duration_minutes: int | None, notes: str | None, rating: int | None,
+) -> int:
+    _ensure_practice_table()
+    return get_client().execute(
+        "INSERT INTO practice_sessions (username, date, type, duration_minutes, notes, rating) VALUES (?, ?, ?, ?, ?, ?)",
+        [username, date, type, duration_minutes, notes, rating],
+    )
+
+
+def get_practice_sessions(username: str) -> list[dict]:
+    _ensure_practice_table()
+    return get_client().fetchall(
+        "SELECT * FROM practice_sessions WHERE username = ? ORDER BY date DESC",
+        [username],
+    )
+
+
+def delete_practice_session(session_id: int):
+    _ensure_practice_table()
+    get_client().execute("DELETE FROM practice_sessions WHERE id = ?", [session_id])
+
+
 def get_all_shots_for_user(username: str) -> list[dict]:
     """Get all completed shots for a user with course and hole data."""
     return get_client().fetchall(

@@ -185,6 +185,8 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
     # ── Per-hole results ───────────────────────────────────────────────────────
     scorecard = []
     stg_tee_list, stg_app_list, stg_sg_list, stg_putt_list, stg_recovery_list = [], [], [], [], []
+    stg_app_fairway_list, stg_app_rough_list, stg_app_sand_list = [], [], []
+    stg_par3_list, stg_par4_list, stg_par5_list = [], [], []
     fir_results, gir_results = [], []
     driving_distances = []
     # Putting distance tracking
@@ -209,7 +211,10 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
         score = len(hole_shots)
 
         # Per-shot SG
-        hole_stg = {"tee": 0.0, "approach": 0.0, "recovery": 0.0, "short_game": 0.0, "putting": 0.0}
+        hole_stg = {
+            "tee": 0.0, "approach": 0.0, "recovery": 0.0, "short_game": 0.0, "putting": 0.0,
+            "approach_fairway": 0.0, "approach_rough": 0.0, "approach_sand": 0.0,
+        }
         for i, shot in enumerate(hole_shots):
             surface = (shot["surface"] or "").strip()
             dist = float(shot["distance_to_hole"]) if shot["distance_to_hole"] else 0
@@ -250,6 +255,14 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
                 dist_m = dist if unit == "meters" else dist / FEET_PER_METER
                 phase = _shot_phase(surface, dist_m)
                 hole_stg[phase] += sg
+                if phase == "approach":
+                    norm_surf = _normalize_surface(surface)
+                    if norm_surf == "Fairway":
+                        hole_stg["approach_fairway"] += sg
+                    elif norm_surf == "Rough":
+                        hole_stg["approach_rough"] += sg
+                    elif norm_surf == "Sand":
+                        hole_stg["approach_sand"] += sg
                 
                 # Accumulate SG by putting distance for Green shots
                 if surface == "Green" and dist > 0:
@@ -268,6 +281,17 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
         stg_recovery_list.append(hole_stg["recovery"])
         stg_sg_list.append(hole_stg["short_game"])
         stg_putt_list.append(hole_stg["putting"])
+        stg_app_fairway_list.append(hole_stg["approach_fairway"])
+        stg_app_rough_list.append(hole_stg["approach_rough"])
+        stg_app_sand_list.append(hole_stg["approach_sand"])
+        hole_total = (hole_stg["tee"] + hole_stg["approach"] + hole_stg["recovery"]
+                      + hole_stg["short_game"] + hole_stg["putting"])
+        if par == 3:
+            stg_par3_list.append(hole_total)
+        elif par == 4:
+            stg_par4_list.append(hole_total)
+        elif par == 5:
+            stg_par5_list.append(hole_total)
 
         # Driving distance: only when driver was used on tee shot
         tee_shot = hole_shots[0]
@@ -391,6 +415,12 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
         + sum(stg_recovery_list) + sum(stg_sg_list) + sum(stg_putt_list)
     )
 
+    gir_holes_list = [h for h in scorecard if h["gir"]]
+    gir_birdie_pct = (
+        sum(1 for h in gir_holes_list if h["score_vs_par"] <= -1) / len(gir_holes_list)
+        if gir_holes_list else 0
+    )
+
     # Score vs Par by par type
     par3_scores = [h["score_vs_par"] for h in scorecard if h["par"] == 3]
     par4_scores = [h["score_vs_par"] for h in scorecard if h["par"] == 4]
@@ -407,6 +437,7 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
         "fir_pct": round(fir_pct, 3),
         "gir_pct": round(gir_pct, 3),
         "scrambling": round(scrambling, 3),
+        "gir_birdie_pct": round(gir_birdie_pct, 3),
         "driving_distances": driving_distances,
         "avg_drive": round(np.mean(driving_distances), 1) if driving_distances else None,
         "score_distribution": score_dist,
@@ -440,4 +471,12 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
         "stg_short_game": round(sum(stg_sg_list) * norm, 2),
         "stg_putting": round(sum(stg_putt_list) * norm, 2),
         "stg_total": round(stg_total * norm, 2),
+        # Approach breakdown by surface (normalised to 18 holes)
+        "stg_approach_fairway": round(sum(stg_app_fairway_list) * norm, 2),
+        "stg_approach_rough": round(sum(stg_app_rough_list) * norm, 2),
+        "stg_approach_sand": round(sum(stg_app_sand_list) * norm, 2),
+        # STG by par type (raw round total — not normalised)
+        "stg_par3": round(sum(stg_par3_list), 2),
+        "stg_par4": round(sum(stg_par4_list), 2),
+        "stg_par5": round(sum(stg_par5_list), 2),
     }

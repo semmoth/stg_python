@@ -10,6 +10,7 @@ Flow:
   3. Save hole → move to next. After hole 18 → round is complete.
 """
 import streamlit as st
+import pandas as pd
 from datetime import date
 
 from db.queries import (
@@ -19,6 +20,98 @@ from db.queries import (
     get_tournaments,
 )
 from utils.constants import SURFACES, CLUBS, TEES
+
+# ── Quick Entry helpers ────────────────────────────────────────────────────────
+_QUICK_CLUBS: dict[str, str] = {
+    "D":  "Driver",
+    "4W": "4 Wood",
+    "2H": "2 Hybrid",
+    "4I": "4 Iron",
+    "5I": "5 Iron",
+    "6I": "6 Iron",
+    "7I": "7 Iron",
+    "8I": "8 Iron",
+    "9I": "9 Iron",
+    "PW": "PW",
+    "GW": "GW",
+    "SW": "SW",
+    "LW": "LW",
+    "P":  "Putter",
+}
+
+def _parse_quick_entry(text: str, tee_distance: int) -> "list[dict] | str":
+    """
+    Parse a compact hole string like 'D F100 PW G10' into shot dicts.
+    Returns a list of shot dicts on success, or an error string on failure.
+
+    Token rules:
+      - First token  : club abbreviation (tee shot, surface=Tee, distance from DB)
+      - G<dist>      : Green shot, <dist> in feet, club=Putter
+      - <surf><dist> : surface + distance in metres (F=Fairway, R=Rough, S=Sand,
+                        RC=Recovery); must be immediately followed by a club token
+      - Last shot is automatically marked holed=True
+    """
+    tokens = text.strip().upper().split()
+    if not tokens:
+        return "Empty entry — type at least a club for the tee shot"
+
+    shots: list[dict] = []
+    i, shot_num = 0, 1
+
+    # Token 0: tee shot club
+    tee_club = _QUICK_CLUBS.get(tokens[0])
+    if tee_club is None:
+        return f"Unknown club '{tokens[0]}'. Valid clubs: {' '.join(_QUICK_CLUBS)}"
+    shots.append({
+        "shot_number": shot_num, "surface": "Tee",
+        "distance_to_hole": tee_distance, "distance_unit": "meters",
+        "club": tee_club, "holed": False, "penalty": False,
+    })
+    i, shot_num = 1, 2
+
+    while i < len(tokens):
+        tok = tokens[i]
+
+        # Green: G + digits (feet, auto Putter)
+        if tok.startswith("G") and tok[1:].isdigit():
+            shots.append({
+                "shot_number": shot_num, "surface": "Green",
+                "distance_to_hole": int(tok[1:]), "distance_unit": "feet",
+                "club": "Putter", "holed": False, "penalty": False,
+            })
+            i, shot_num = i + 1, shot_num + 1
+            continue
+
+        # Recovery (check RC before R to avoid prefix clash)
+        if tok.startswith("RC") and tok[2:].isdigit():
+            surface, dist_str = "Recovery", tok[2:]
+        elif tok[:1] in ("F", "R", "S") and tok[1:].isdigit():
+            surface = {"F": "Fairway", "R": "Rough", "S": "Sand"}[tok[0]]
+            dist_str = tok[1:]
+        else:
+            return (
+                f"Unrecognized token '{tok}'. "
+                "Expected surface+distance (F100, R80, S15, RC50) or green (G10)."
+            )
+
+        # Next token must be a club
+        if i + 1 >= len(tokens):
+            return f"Missing club after '{tok}' — add a club code (e.g. PW, 7I)"
+        club = _QUICK_CLUBS.get(tokens[i + 1])
+        if club is None:
+            return f"Unknown club '{tokens[i + 1]}'. Valid clubs: {' '.join(_QUICK_CLUBS)}"
+
+        shots.append({
+            "shot_number": shot_num, "surface": surface,
+            "distance_to_hole": int(dist_str), "distance_unit": "meters",
+            "club": club, "holed": False, "penalty": False,
+        })
+        i, shot_num = i + 2, shot_num + 1
+
+    if shots:
+        shots[-1]["holed"] = True
+    return shots
+
 
 # Use session state values set from app.py
 username = st.session_state.get("username", "stefan")
@@ -30,6 +123,9 @@ for key, default in [
     ("current_hole", 1),
     ("hole_shots", []),   # list of shot dicts for the hole being entered
     ("total_holes", 18),  # number of holes in the course
+    ("entry_mode", "Standard"),
+    ("qe_parsed", None),
+    ("qe_errors", []),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -84,6 +180,13 @@ if st.session_state.round_id is None:
         with col2:
             tee = st.selectbox("Tee", tee_options)
 
+    entry_mode = st.radio(
+        "Entry mode",
+        ["Standard", "Quick Entry"],
+        horizontal=True,
+        help="Quick Entry: type all holes in compact shorthand after starting the round.",
+    )
+
     if st.button("Start Round ⛳", type="primary", use_container_width=True):
         round_id = create_round(
             username=username,
@@ -98,17 +201,168 @@ if st.session_state.round_id is None:
         st.session_state.round_id = round_id
         st.session_state.current_hole = 1
         st.session_state.hole_shots = []
+        st.session_state.entry_mode = entry_mode
+        st.session_state.qe_parsed = None
+        st.session_state.qe_errors = []
         st.rerun()
 
     st.stop()
 
 # ════════════════════════════════════════════════════════════════════════════════
-# SECTION B — Hole-by-hole entry
+# SECTION B — Hole-by-hole entry  /  SECTION C — Quick Entry
 # ════════════════════════════════════════════════════════════════════════════════
 round_id = st.session_state.round_id
 current_hole = st.session_state.current_hole
 total_holes = st.session_state.total_holes
 
+# ── Section C: Quick Entry (all holes in compact text format) ──────────────────
+if st.session_state.get("entry_mode") == "Quick Entry":
+    from db.queries import get_round as _get_round
+    _round_info = _get_round(round_id)
+    _course_id = int(_round_info["course_id"])
+    _holes = get_holes(_course_id, tee_name=_round_info["tee"])
+
+    st.subheader("⚡ Quick Entry")
+    st.caption(f"Enter all {len(_holes)} holes below — one line per hole.")
+
+    with st.expander("📖 Format reference", expanded=False):
+        _c1, _c2 = st.columns(2)
+        with _c1:
+            st.markdown("""
+**One line per hole.** Tokens separated by spaces.
+Lines starting with `#` are ignored.
+
+**Token types:**
+- First token = tee shot club (e.g. `D`)
+- `F100` = Fairway, 100 m · `R80` = Rough, 80 m
+- `S15` = Sand, 15 m · `RC30` = Recovery, 30 m
+- `G10` = Green, 10 ft → Putter (auto)
+
+Each surface token **must be followed by a club token.**
+The last shot is automatically marked as holed.
+""")
+        with _c2:
+            st.markdown("""
+**Club codes:**
+`D` Driver · `4W` 4 Wood · `2H` 2 Hybrid
+`4I` `5I` `6I` `7I` `8I` `9I` Irons
+`PW` · `GW` · `SW` · `LW` · `P` Putter
+
+**Examples:**
+- Par 3 birdie: `7I G8`
+- Par 4 par: `D F100 PW G10`
+- Par 5 bogey: `D F220 7I G25 G5`
+- Chip-in: `D R110 SW`
+""")
+
+    # Hole reference bar — helps the user count which line is which hole
+    _hole_ref = "  ·  ".join(
+        f"**{h['hole_number']}** P{h['par']} {h['distance']}m" for h in _holes
+    )
+    st.caption(_hole_ref)
+
+    _qe_text = st.text_area(
+        "Holes (one per line):",
+        height=max(360, len(_holes) * 26 + 40),
+        key="qe_text",
+        placeholder="D F100 PW G10\n7I G15 G4\n...",
+    )
+
+    _col_parse, _col_switch = st.columns(2)
+    with _col_parse:
+        _do_parse = st.button("🔍 Parse & Preview", type="primary", use_container_width=True)
+    with _col_switch:
+        if st.button("Switch to Standard Entry", use_container_width=True):
+            st.session_state.entry_mode = "Standard"
+            st.session_state.qe_parsed = None
+            st.session_state.qe_errors = []
+            st.rerun()
+
+    if _do_parse:
+        _lines = [l for l in _qe_text.split("\n") if l.strip() and not l.strip().startswith("#")]
+        if len(_lines) != len(_holes):
+            st.session_state.qe_errors = [
+                f"Expected {len(_holes)} hole entries (one per line), got {len(_lines)}."
+            ]
+            st.session_state.qe_parsed = None
+        else:
+            _parsed, _errors = [], []
+            for _hole, _line in zip(_holes, _lines):
+                _tee_dist = int(_hole["distance"]) if _hole.get("distance") else 150
+                _result = _parse_quick_entry(_line, _tee_dist)
+                if isinstance(_result, str):
+                    _errors.append(f"Hole {_hole['hole_number']}: {_result}")
+                else:
+                    _parsed.append((_hole, _result))
+            if _errors:
+                st.session_state.qe_errors = _errors
+                st.session_state.qe_parsed = None
+            else:
+                st.session_state.qe_parsed = _parsed
+                st.session_state.qe_errors = []
+        st.rerun()
+
+    for _err in st.session_state.get("qe_errors", []):
+        st.error(_err)
+
+    _parsed_data = st.session_state.get("qe_parsed")
+    if _parsed_data:
+        st.subheader("Preview")
+        _rows = []
+        for _hole, _shot_list in _parsed_data:
+            _par = int(_hole["par"])
+            _score = len(_shot_list)
+            _diff = _score - _par
+            _putts = sum(1 for s in _shot_list if s["surface"] == "Green")
+            _rows.append({
+                "Hole": int(_hole["hole_number"]),
+                "Par": _par,
+                "Score": _score,
+                "+/-": f"+{_diff}" if _diff > 0 else str(_diff),
+                "Putts": _putts,
+                "Shots": " → ".join(
+                    f"{s['surface'][0]}({s['club'][:2]})" for s in _shot_list
+                ),
+            })
+        st.dataframe(pd.DataFrame(_rows), use_container_width=True, hide_index=True)
+
+        _total_score = sum(len(sl) for _, sl in _parsed_data)
+        _total_par = sum(int(h["par"]) for h, _ in _parsed_data)
+        _diff = _total_score - _total_par
+        st.markdown(f"**Total: {_total_score} ({'+' if _diff > 0 else ''}{_diff})**")
+
+        if st.button("✅ Save All & Complete Round", type="primary", use_container_width=True):
+            for _hole, _shot_list in _parsed_data:
+                _hole_num = int(_hole["hole_number"])
+                delete_shots_for_hole(round_id, _hole_num)
+                for s in _shot_list:
+                    save_shot(
+                        round_id=round_id,
+                        hole_number=_hole_num,
+                        shot_number=s["shot_number"],
+                        surface=s["surface"],
+                        distance_to_hole=s["distance_to_hole"],
+                        distance_unit=s["distance_unit"],
+                        club=s.get("club"),
+                        holed=s.get("holed", False),
+                        penalty=s.get("penalty", False),
+                    )
+            complete_round(round_id)
+            for _k in ("round_id", "current_hole", "hole_shots", "entry_mode", "qe_parsed", "qe_errors"):
+                st.session_state.pop(_k, None)
+            st.switch_page("pages/2_Last_Round.py")
+
+    with st.expander("⚠️ Abandon this round"):
+        st.warning("This will permanently delete all data entered for this round.")
+        if st.button("Delete round and start over", type="secondary", key="qe_abandon"):
+            delete_round(round_id)
+            for _k in ("round_id", "current_hole", "hole_shots", "entry_mode", "qe_parsed", "qe_errors"):
+                st.session_state.pop(_k, None)
+            st.rerun()
+
+    st.stop()
+
+# ── Section B continues: Standard hole-by-hole entry ──────────────────────────
 if current_hole > total_holes:
     # ── Round complete ─────────────────────────────────────────────────────────
     st.success(f"🏁 Round complete! All {total_holes} holes saved.")

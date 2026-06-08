@@ -9,7 +9,7 @@ import pandas as pd
 from datetime import date, timedelta
 
 from db.queries import get_rounds, get_shots_for_round, get_holes, get_round
-from utils.strokes_gained import calculate_round_stats
+from utils.strokes_gained import calculate_round_stats, shot_strokes_gained
 from utils.constants import COLOR_PRIMARY, COLOR_NEGATIVE, COLOR_POSITIVE
 
 # Use session state values set from app.py
@@ -279,10 +279,22 @@ putting_totals = [
     ("30+ ft", df["sg_30plus"].mean()),
 ]
 
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4, col5 = st.columns(5)
 for (label, avg_sg), col in zip(putting_totals, [col1, col2, col3, col4]):
     delta_color = "normal" if avg_sg >= 0 else "inverse"
     col.metric(label, f"{avg_sg:+.2f}", delta=f"{avg_sg:+.2f}", delta_color=delta_color)
+
+total_puts_6ft = int(df["puts_6ft"].sum())
+total_makes_6ft = int(df["makes_6ft"].sum())
+make_pct_6ft_str = (
+    f"{total_makes_6ft / total_puts_6ft * 100:.0f}%"
+    if total_puts_6ft > 0 else "—"
+)
+col5.metric(
+    "Make % (≤ 6 ft)",
+    make_pct_6ft_str,
+    help=f"{total_makes_6ft} made from {total_puts_6ft} attempts across all rounds",
+)
 
 st.markdown("---")
 st.subheader("🐯 Tiger 5 Rules — Season Summary")
@@ -376,3 +388,245 @@ if hole_records:
         })
     )
     st.dataframe(styled, use_container_width=True, hide_index=True)
+
+# ── Shots by Distance ─────────────────────────────────────────────────────────
+st.markdown("---")
+st.subheader("Shots by Distance")
+st.caption("All approach shots (non-tee, non-green, non-penalty) from 30 m+.")
+
+
+@st.cache_data(ttl=300)
+def _distance_breakdown(username: str) -> pd.DataFrame:
+    rounds = get_rounds(username)
+    completed = [r for r in rounds if int(r.get("completed", 0)) == 1]
+    records = []
+
+    for r in completed:
+        # Build hole par map so we can include par-3 tee shots
+        course_id = int(r["course_id"]) if r.get("course_id") else None
+        hole_map = {}
+        if course_id:
+            for h in get_holes(course_id, tee_name=r.get("tee")):
+                hole_map[int(h["hole_number"])] = h
+
+        shots = get_shots_for_round(int(r["id"]))
+        by_hole: dict[int, list] = {}
+        for s in shots:
+            by_hole.setdefault(int(s["hole_number"]), []).append(s)
+
+        for hole_num, hole_shots in by_hole.items():
+            hole_shots.sort(key=lambda x: int(x["shot_number"]))
+            par = int(hole_map.get(hole_num, {}).get("par", 4))
+
+            for i, shot in enumerate(hole_shots):
+                if int(shot.get("penalty") or 0):
+                    continue
+                surface = (shot["surface"] or "").strip()
+                if surface == "Green":
+                    continue
+                # Skip tee shots unless it's a par 3 (where the tee shot = the approach)
+                if surface == "Tee" and par != 3:
+                    continue
+                dist = float(shot["distance_to_hole"]) if shot["distance_to_hole"] else None
+                unit = shot["distance_unit"] or "meters"
+                if dist is None:
+                    continue
+                dist_m = dist if unit == "meters" else dist / 3.28084
+                if dist_m < 30:
+                    continue
+
+                if i + 1 < len(hole_shots):
+                    ns = hole_shots[i + 1]
+                    sg = shot_strokes_gained(
+                        surface, dist, unit,
+                        (ns["surface"] or "").strip(),
+                        float(ns["distance_to_hole"]) if ns["distance_to_hole"] else 0,
+                        ns["distance_unit"] or "meters",
+                        False,
+                    )
+                else:
+                    sg = shot_strokes_gained(surface, dist, unit, None, None, None, True)
+
+                # 30–49 m is one bucket; 50m+ follow 25m intervals
+                if dist_m < 50:
+                    bucket_sort, bucket = 30, "30–49 m"
+                else:
+                    b = int(dist_m // 25) * 25
+                    bucket_sort, bucket = b, f"{b}–{b + 24} m"
+
+                records.append({"bucket_sort": bucket_sort, "bucket": bucket, "sg": sg})
+
+    if not records:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(records)
+    agg = (
+        df.groupby(["bucket_sort", "bucket"])
+        .agg(shots=("sg", "count"), avg_sg=("sg", "mean"), total_sg=("sg", "sum"))
+        .reset_index()
+        .sort_values("bucket_sort")
+        .drop(columns="bucket_sort")
+    )
+    agg = agg.rename(columns={"bucket": "Distance", "shots": "Shots",
+                               "avg_sg": "Avg SG/Shot", "total_sg": "Total SG"})
+    agg["Avg SG/Shot"] = agg["Avg SG/Shot"].round(3)
+    agg["Total SG"] = agg["Total SG"].round(2)
+    return agg
+
+
+df_dist = _distance_breakdown(username)
+
+if df_dist.empty:
+    st.info("No approach shot data found.")
+else:
+    def _colour_sg_val(val):
+        if not isinstance(val, float):
+            return ""
+        if val > 0.05:
+            return f"background-color: {COLOR_POSITIVE}; color: white"
+        if val < -0.05:
+            return f"background-color: {COLOR_NEGATIVE}; color: white"
+        return ""
+
+    styled_dist = (
+        df_dist.style
+        .applymap(_colour_sg_val, subset=["Avg SG/Shot", "Total SG"])
+        .format({"Avg SG/Shot": "{:+.3f}", "Total SG": "{:+.2f}"})
+    )
+    st.dataframe(styled_dist, use_container_width=True, hide_index=True)
+
+    fig_dist = go.Figure(go.Bar(
+        x=df_dist["Distance"],
+        y=df_dist["Avg SG/Shot"],
+        marker_color=[COLOR_POSITIVE if v >= 0 else COLOR_NEGATIVE for v in df_dist["Avg SG/Shot"]],
+        text=[f"{v:+.3f}" for v in df_dist["Avg SG/Shot"]],
+        textposition="outside",
+        customdata=df_dist["Shots"],
+        hovertemplate="%{x}<br>Avg SG: %{y:+.3f}<br>Shots: %{customdata}<extra></extra>",
+    ))
+    fig_dist.add_hline(y=0, line_color="gray", line_dash="dot")
+    fig_dist.update_layout(
+        yaxis_title="Avg SG / Shot", xaxis_title="Distance to hole",
+        height=300, margin=dict(t=20, b=20),
+    )
+    st.plotly_chart(fig_dist, use_container_width=True)
+
+
+# ── Around the Green ──────────────────────────────────────────────────────────
+st.markdown("---")
+st.subheader("Around the Green")
+st.caption("Non-green, non-tee shots within 30 m — surface × distance matrix.")
+
+_ATG_SURFS = ["Fairway", "Rough", "Sand", "Recovery"]
+_ATG_BUCKS = ["< 10 m", "10–19 m", "20–29 m"]
+
+
+@st.cache_data(ttl=300)
+def _atg_matrix(username: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Returns (avg_sg_pivot, count_pivot) for shots within 30m of the hole."""
+    rounds = get_rounds(username)
+    completed = [r for r in rounds if int(r.get("completed", 0)) == 1]
+    records = []
+
+    for r in completed:
+        shots = get_shots_for_round(int(r["id"]))
+        by_hole: dict[int, list] = {}
+        for s in shots:
+            by_hole.setdefault(int(s["hole_number"]), []).append(s)
+
+        for hole_shots in by_hole.values():
+            hole_shots.sort(key=lambda x: int(x["shot_number"]))
+            for i, shot in enumerate(hole_shots):
+                if int(shot.get("penalty") or 0):
+                    continue
+                surface = (shot["surface"] or "").strip()
+                if surface in ("Green", "Tee"):
+                    continue
+                dist = float(shot["distance_to_hole"]) if shot["distance_to_hole"] else None
+                unit = shot["distance_unit"] or "meters"
+                if dist is None:
+                    continue
+                dist_m = dist if unit == "meters" else dist / 3.28084
+                if dist_m >= 30:
+                    continue
+
+                if i + 1 < len(hole_shots):
+                    ns = hole_shots[i + 1]
+                    sg = shot_strokes_gained(
+                        surface, dist, unit,
+                        (ns["surface"] or "").strip(),
+                        float(ns["distance_to_hole"]) if ns["distance_to_hole"] else 0,
+                        ns["distance_unit"] or "meters",
+                        False,
+                    )
+                else:
+                    sg = shot_strokes_gained(surface, dist, unit, None, None, None, True)
+
+                if dist_m < 10:
+                    bucket = "< 10 m"
+                elif dist_m < 20:
+                    bucket = "10–19 m"
+                else:
+                    bucket = "20–29 m"
+
+                records.append({"surface": surface, "bucket": bucket, "sg": sg})
+
+    if not records:
+        return pd.DataFrame(), pd.DataFrame()
+
+    df = pd.DataFrame(records)
+
+    # Build rows for each surface + an "All" total row
+    rows_sg, rows_n = [], []
+    for surf in _ATG_SURFS + ["All"]:
+        sub = df if surf == "All" else df[df["surface"] == surf]
+        row_sg: dict = {"Surface": surf}
+        row_n: dict = {"Surface": surf}
+        for buck in _ATG_BUCKS + ["Total"]:
+            cell = sub if buck == "Total" else sub[sub["bucket"] == buck]
+            mean_val = cell["sg"].mean()
+            row_sg[buck] = round(float(mean_val), 3) if not pd.isna(mean_val) else None
+            row_n[buck] = len(cell)
+        rows_sg.append(row_sg)
+        rows_n.append(row_n)
+
+    df_sg = pd.DataFrame(rows_sg).set_index("Surface")
+    df_n = pd.DataFrame(rows_n).set_index("Surface")
+
+    # Drop surface rows with zero shots across all buckets (keep "All" row always)
+    df_sg = df_sg.loc[[r for r in df_sg.index if r == "All" or df_n.loc[r, "Total"] > 0]]
+    df_n = df_n.loc[[r for r in df_n.index if r == "All" or df_n.loc[r, "Total"] > 0]]
+
+    return df_sg, df_n.astype(int)
+
+
+df_atg_sg, df_atg_n = _atg_matrix(username)
+
+if df_atg_sg.empty:
+    st.info("No short game shot data found.")
+else:
+    def _colour_atg(val):
+        try:
+            v = float(val)
+        except (TypeError, ValueError):
+            return ""
+        if pd.isna(v):
+            return ""
+        if v > 0.05:
+            return f"background-color: {COLOR_POSITIVE}; color: white"
+        if v < -0.05:
+            return f"background-color: {COLOR_NEGATIVE}; color: white"
+        return ""
+
+    col_sg, col_n = st.columns(2)
+    with col_sg:
+        st.markdown("**Avg SG / Shot**")
+        styled_atg = (
+            df_atg_sg.style
+            .applymap(_colour_atg)
+            .format("{:+.3f}", na_rep="—")
+        )
+        st.dataframe(styled_atg, use_container_width=True)
+    with col_n:
+        st.markdown("**Shots**")
+        st.dataframe(df_atg_n, use_container_width=True)

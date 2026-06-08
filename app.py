@@ -35,10 +35,12 @@ with col3:
 with col4:
     st.page_link("pages/6_Club_Stats.py", label="🏌️ Club Stats", use_container_width=True)
 
-col5, col6, col7 = st.columns(3)
+col5, col6, col7, col8 = st.columns(4)
 with col5:
     st.page_link("pages/7_Edit_Round.py", label="✏️ Edit Round", use_container_width=True)
 with col6:
     st.page_link("pages/8_Practice_Log.py", label="📋 Practice Log", use_container_width=True)
 with col7:
+    st.page_link("pages/9_Equipment.py", label="🎒 Equipment", use_container_width=True)
+with col8:
     st.page_link("pages/5_Tournament_Admin.py", label="🏆 Tournament Admin", use_container_width=True)

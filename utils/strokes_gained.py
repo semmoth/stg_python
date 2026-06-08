@@ -144,11 +144,15 @@ def shot_strokes_gained(
     return round(se_start - se_end - 1, 4)
 
 
-def _shot_phase(surface: str, distance_m: float) -> str:
-    """Categorise a shot into a strokes gained phase."""
+def _shot_phase(surface: str, distance_m: float, par: int = 4) -> str:
+    """Categorise a shot into a strokes gained phase.
+
+    Par-3 tee shots count as approach (the tee shot is the approach on a par 3).
+    Par-4 and Par-5 tee shots count as tee.
+    """
     surface = _normalize_surface(surface)
     if surface == "Tee":
-        return "tee"
+        return "tee" if par > 3 else "approach"
     if surface == "Green":
         return "putting"
     if surface == "Recovery":
@@ -253,7 +257,7 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
 
             if sg is not None:
                 dist_m = dist if unit == "meters" else dist / FEET_PER_METER
-                phase = _shot_phase(surface, dist_m)
+                phase = _shot_phase(surface, dist_m, par)
                 hole_stg[phase] += sg
                 if phase == "approach":
                     norm_surf = _normalize_surface(surface)
@@ -447,6 +451,7 @@ def calculate_round_stats(shots: list[dict], holes: list[dict]) -> dict:
         # Putting by distance
         "puts_6ft": puts_6ft,
         "makes_6ft": makes_6ft,
+        "make_pct_6ft": round(makes_6ft / puts_6ft, 3) if puts_6ft > 0 else None,
         "puts_6_10ft": puts_6_10ft,
         "makes_6_10ft": makes_6_10ft,
         "puts_10_30ft": puts_10_30ft,

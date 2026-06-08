@@ -1,4 +1,5 @@
 """All database query functions."""
+import json
 from db.client import get_client
 
 
@@ -294,6 +295,61 @@ def delete_practice_session(session_id: int):
     _ensure_practice_table()
     get_client().execute("DELETE FROM practice_sessions WHERE id = ?", [session_id])
 
+
+# ── Equipment configs ──────────────────────────────────────────────────────────
+
+def _ensure_equipment_table():
+    get_client().execute("""
+        CREATE TABLE IF NOT EXISTS equipment_configs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            clubs TEXT NOT NULL,
+            effective_from TEXT NOT NULL,
+            active INTEGER NOT NULL DEFAULT 0,
+            notes TEXT
+        )
+    """)
+
+
+def get_equipment_configs() -> list[dict]:
+    _ensure_equipment_table()
+    return get_client().fetchall(
+        "SELECT * FROM equipment_configs ORDER BY effective_from DESC"
+    )
+
+
+def get_active_equipment_config() -> dict | None:
+    _ensure_equipment_table()
+    return get_client().fetchone(
+        "SELECT * FROM equipment_configs WHERE active = 1 LIMIT 1"
+    )
+
+
+def create_equipment_config(
+    name: str, clubs: list[str], effective_from: str, notes: str = "",
+) -> int:
+    _ensure_equipment_table()
+    return get_client().execute(
+        "INSERT INTO equipment_configs (name, clubs, effective_from, active, notes) VALUES (?, ?, ?, 0, ?)",
+        [name, json.dumps(clubs), effective_from, notes],
+    )
+
+
+def set_active_equipment_config(config_id: int):
+    _ensure_equipment_table()
+    # Single statement — atomically deactivates all and activates the chosen one
+    get_client().execute(
+        "UPDATE equipment_configs SET active = CASE WHEN id = ? THEN 1 ELSE 0 END",
+        [config_id],
+    )
+
+
+def delete_equipment_config(config_id: int):
+    _ensure_equipment_table()
+    get_client().execute("DELETE FROM equipment_configs WHERE id = ?", [config_id])
+
+
+# ── Shots (legacy) ─────────────────────────────────────────────────────────────
 
 def get_all_shots_for_user(username: str) -> list[dict]:
     """Get all completed shots for a user with course and hole data."""

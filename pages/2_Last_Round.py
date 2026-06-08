@@ -50,10 +50,7 @@ svp = stats["score_vs_par"]
 svp_str = f"+{svp}" if svp > 0 else str(svp)
 score_color = COLOR_NEGATIVE if svp > 0 else COLOR_POSITIVE
 
-st.markdown(
-    f"<h2 style='color:{score_color};'>{stats['score']} ({svp_str})</h2>",
-    unsafe_allow_html=True,
-)
+st.html(f"<h2 style='color:{score_color};'>{stats['score']} ({svp_str})</h2>")
 
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("FIR", f"{stats['fir_pct']*100:.0f}%")
@@ -142,11 +139,10 @@ for h in scorecard:
     """
     scorecards_html.append(card_html)
 
-st.markdown(
+st.html(
     "<div style='display:flex; flex-wrap:wrap; gap:12px; padding-bottom:8px; overflow-x:auto; white-space:nowrap;'>"
     + "".join(scorecards_html)
-    + "</div>",
-    unsafe_allow_html=True,
+    + "</div>"
 )
 
 st.markdown("---")
@@ -249,10 +245,19 @@ putting_data = [
     ("30+ ft",   stats.get("sg_30plus", 0.0)),
 ]
 
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4, col5 = st.columns(5)
 for (label, sg_value), col in zip(putting_data, [col1, col2, col3, col4]):
     col.metric(label, f"{sg_value:+.2f}", delta=f"{sg_value:+.2f}",
                delta_color="normal" if sg_value >= 0 else "inverse")
+
+make_pct = stats.get("make_pct_6ft")
+makes_6 = stats.get("makes_6ft", 0)
+puts_6 = stats.get("puts_6ft", 0)
+col5.metric(
+    "Make % (≤ 6 ft)",
+    f"{make_pct * 100:.0f}%" if make_pct is not None else "—",
+    help=f"{makes_6} made from {puts_6} attempts",
+)
 
 # ── Tiger 5 Rules ─────────────────────────────────────────────────────────────
 st.markdown("---")

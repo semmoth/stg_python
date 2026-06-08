@@ -5,6 +5,7 @@ SURFACES = ["Tee", "Fairway", "Rough", "Sand", "Green", "Recovery"]
 CLUBS = [
     "Driver",
     "4 Wood",
+    "7 Wood",
     "2 Hybrid",
     "4 Iron",
     "5 Iron",
@@ -13,6 +14,7 @@ CLUBS = [
     "8 Iron",
     "9 Iron",
     "PW",
+    "W",
     "GW",
     "SW",
     "LW",
@@ -31,6 +33,7 @@ TEES_ID = {
 CLUB_DISTANCE_ESTIMATES = {
     "Driver": 250,
     "4 Wood": 230,
+    "7 Wood": 205,
     "2 Hybrid": 210,
     "4 Iron": 185,
     "5 Iron": 175,
@@ -39,6 +42,7 @@ CLUB_DISTANCE_ESTIMATES = {
     "8 Iron": 145,
     "9 Iron": 135,
     "PW": 125,
+    "W": 112,
     "GW": 105,
     "SW": 90,
     "LW": 80,

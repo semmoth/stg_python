@@ -13,11 +13,14 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 
+import json
+
 from db.queries import (
     get_courses, get_course_tee_names, get_holes, get_hole,
     create_round, complete_round, delete_round,
     save_shot, delete_shots_for_hole,
     get_tournaments,
+    get_active_equipment_config,
 )
 from utils.constants import SURFACES, CLUBS, TEES
 
@@ -25,6 +28,7 @@ from utils.constants import SURFACES, CLUBS, TEES
 _QUICK_CLUBS: dict[str, str] = {
     "D":  "Driver",
     "4W": "4 Wood",
+    "7W": "7 Wood",
     "2H": "2 Hybrid",
     "4I": "4 Iron",
     "5I": "5 Iron",
@@ -33,6 +37,7 @@ _QUICK_CLUBS: dict[str, str] = {
     "8I": "8 Iron",
     "9I": "9 Iron",
     "PW": "PW",
+    "W":  "W",
     "GW": "GW",
     "SW": "SW",
     "LW": "LW",
@@ -113,6 +118,12 @@ def _parse_quick_entry(text: str, tee_distance: int) -> "list[dict] | str":
     return shots
 
 
+# ── Active bag clubs (from equipment config, falls back to CLUBS constant) ─────
+@st.cache_data(ttl=300)
+def _get_config_clubs() -> list[str]:
+    config = get_active_equipment_config()
+    return json.loads(config["clubs"]) if config else list(CLUBS)
+
 # Use session state values set from app.py
 username = st.session_state.get("username", "stefan")
 name = st.session_state.get("name", "Stefan")
@@ -126,9 +137,20 @@ for key, default in [
     ("entry_mode", "Standard"),
     ("qe_parsed", None),
     ("qe_errors", []),
+    ("hybrid_selection", "2 Hybrid"),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
+
+# ── Resolve bag clubs for this session ────────────────────────────────────────
+# Load from active equipment config, then filter to the chosen hybrid/wood slot.
+_config_clubs = _get_config_clubs()
+_has_hybrid_choice = "2 Hybrid" in _config_clubs and "7 Wood" in _config_clubs
+if _has_hybrid_choice:
+    _exclude = "7 Wood" if st.session_state.hybrid_selection == "2 Hybrid" else "2 Hybrid"
+    BAG_CLUBS = [c for c in _config_clubs if c != _exclude]
+else:
+    BAG_CLUBS = _config_clubs
 
 # ── Page ───────────────────────────────────────────────────────────────────────
 st.title("📝 Enter a Round")
@@ -179,6 +201,15 @@ if st.session_state.round_id is None:
             round_date = st.date_input("Date", value=date.today())
         with col2:
             tee = st.selectbox("Tee", tee_options)
+
+    if _has_hybrid_choice:
+        st.radio(
+            "Hybrid slot",
+            ["2 Hybrid", "7 Wood"],
+            horizontal=True,
+            key="hybrid_selection",
+            help="Which club are you carrying today in the hybrid/fairway-wood slot?",
+        )
 
     entry_mode = st.radio(
         "Entry mode",
@@ -462,7 +493,7 @@ if not already_holed:
             value=int(hole_dist) if hole_dist and hole_dist != "?" else 150,
             step=1, key=f"dist_input_{shot_number}",
         )
-        club = st.radio("Club", CLUBS, key=f"club_select_{shot_number}", horizontal=True)
+        club = st.radio("Club", BAG_CLUBS, key=f"club_select_{shot_number}", horizontal=True)
         holed = st.checkbox("Holed ✅", key=f"holed_check_{shot_number}")
         penalty = st.checkbox("Penalty shot", value=False, key=f"penalty_check_{shot_number}")
         distance_unit = "meters"
@@ -495,8 +526,8 @@ if not already_holed:
                 step=1, key=f"dist_input_{shot_number}",
             )
             suggested_club = next_club or None
-            club_index = CLUBS.index(suggested_club) if suggested_club in CLUBS else 0
-            club = st.radio("Club", CLUBS, index=club_index, key=f"club_select_{shot_number}", horizontal=True)
+            club_index = BAG_CLUBS.index(suggested_club) if suggested_club in BAG_CLUBS else 0
+            club = st.radio("Club", BAG_CLUBS, index=club_index, key=f"club_select_{shot_number}", horizontal=True)
 
         holed = st.checkbox("Holed ✅", key=f"holed_check_{shot_number}")
         penalty = st.checkbox("Penalty shot", value=False, key=f"penalty_check_{shot_number}")
